@@ -4,6 +4,9 @@
  * The MVP implementation is `HttpSseTransport` (HTTP REST + Server-Sent Events).
  * A future `WebSocketTransport` can implement the same interface so the UI
  * code does not need to change.
+ *
+ * Each method accepts an optional `agentId`. When set, the call is routed
+ * through a Manager's proxy (`/v1/agents/:aid/...`) to a specific Agent.
  */
 
 import type {
@@ -37,30 +40,21 @@ export interface Subscription {
  * is a drop-in change.
  */
 export interface Transport {
-  /**
-   * List all sessions known to the server daemon (any status,
-   * including 'exited'). The server persists sessions across restarts.
-   */
-  listSessions(ref: ServerRef): Promise<Session[]>;
+  /** List all sessions on a daemon (direct or via manager proxy). */
+  listSessions(ref: ServerRef, agentId?: string): Promise<Session[]>;
 
-  /**
-   * Create a new session. The server spawns the requested process
-   * inside a PTY and returns the initial metadata (status='starting'
-   * or 'running' depending on how fast spawn returns).
-   */
-  createSession(ref: ServerRef, spec: SessionSpec): Promise<Session>;
+  /** Create a new session on a daemon. */
+  createSession(ref: ServerRef, spec: SessionSpec, agentId?: string): Promise<Session>;
 
-  /**
-   * Fetch metadata for a single session. Throws if not found.
-   */
-  getSession(ref: ServerRef, id: string): Promise<Session>;
+  /** Fetch metadata for a single session. */
+  getSession(ref: ServerRef, id: string, agentId?: string): Promise<Session>;
 
   /**
    * Kill a session (SIGTERM, then SIGKILL after a grace period).
    * If the session is already exited, the row + its append-only log are
    * removed from storage instead.
    */
-  killSession(ref: ServerRef, id: string): Promise<void>;
+  killSession(ref: ServerRef, id: string, agentId?: string): Promise<void>;
 
   /**
    * Permanently delete an already-exited session (row + log file).
@@ -75,47 +69,52 @@ export interface Transport {
    */
   pruneSessions(ref: ServerRef, olderThanHours?: number): Promise<{ removed: number }>;
 
-  /**
-   * Resize the underlying PTY. Clients should call this when the
-   * terminal view is resized (orientation change on mobile, etc.).
-   */
+  /** Resize the underlying PTY. */
   resizeSession(
     ref: ServerRef,
     id: string,
     cols: number,
     rows: number,
+    agentId?: string,
   ): Promise<void>;
 
-  /**
-   * Fetch historical output from a session's log file.
-   *
-   * @param fromOffset  Byte offset the client last consumed.
-   * @param limit       Optional cap on bytes returned (server may round up to chunk boundaries).
-   */
+  /** Fetch historical output from a session's log file. */
   fetchOutput(
     ref: ServerRef,
     id: string,
     fromOffset: number,
     limit?: number,
+    agentId?: string,
   ): Promise<FetchOutputResult>;
 
-  /**
-   * Open a live subscription. New output is delivered via `handlers.onChunk`,
-   * state changes via `onState`, transport errors via `onError`.
-   *
-   * Implementations should auto-reconnect transparently (so the UI does
-   * not have to deal with network blips), but surface persistent failures
-   * via `onError` after exhausting retries.
-   */
+  /** Open a live subscription (SSE). */
   subscribe(
     ref: ServerRef,
     id: string,
     handlers: SubscribeHandlers,
+    agentId?: string,
   ): Subscription;
 
-  /**
-   * Send input bytes to the session's PTY. Typically the user-typed
-   * text plus a carriage return.
-   */
-  sendInput(ref: ServerRef, id: string, data: Uint8Array): Promise<void>;
+  /** Send input bytes to the session's PTY. */
+  sendInput(ref: ServerRef, id: string, data: Uint8Array, agentId?: string): Promise<void>;
+
+  // ── Manager-specific operations ────────────────────────────────────────
+  // These are only valid when the ref points to a Manager. They are
+  // declared on Transport (not a separate interface) so the SPA can call
+  // them through the same factory without switching clients.
+
+  /** Log in to a Manager with its admin token. Returns a session token. */
+  login(ref: ServerRef, token: string): Promise<{ sessionToken: string }>;
+
+  /** Verify the current session token is still valid. */
+  checkSession(ref: ServerRef): Promise<boolean>;
+
+  /** List agents registered with this Manager. */
+  listAgents(ref: ServerRef): Promise<{ id: string; name: string; baseUrl: string }[]>;
+
+  /** Register a new Agent with this Manager. */
+  addAgent(ref: ServerRef, agent: { name: string; baseUrl: string; token: string }): Promise<{ id: string }>;
+
+  /** Remove an Agent from this Manager. */
+  deleteAgent(ref: ServerRef, agentId: string): Promise<void>;
 }
