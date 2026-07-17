@@ -25,10 +25,10 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SessionManager } from '../session/manager.js';
+import type { Storage } from '../session/storage.js';
 import type { ServerConfig } from '../config.js';
 import { log } from '../util/log.js';
 import { hexAsciiDump } from '../util/hex-dump.js';
-import '../types.js'; // module augmentation for FastifyInstance.storage
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -46,6 +46,7 @@ function encodeChunk(bytes: Uint8Array, format: 'base64' | 'hex'): string {
 export function registerStreamRoute(
   app: FastifyInstance,
   manager: SessionManager,
+  storage: Storage,
   cfg: Pick<ServerConfig, 'sseFormat' | 'sseDebugLog'>,
 ): void {
   app.get<{ Params: StreamParams; Querystring: StreamQuery }>(
@@ -75,7 +76,6 @@ export function registerStreamRoute(
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'X-Accel-Buffering': 'no', // disable nginx buffering
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
       });
 
       // Flush headers immediately so EventSource can connect
@@ -86,7 +86,6 @@ export function registerStreamRoute(
 
       // ── Replay missed output ────────────────────────────────────────────
       if (fromOffset < session.byteOffset) {
-        const storage = req.server.storage;
         const result = storage.readOutput(id, fromOffset);
         for (const chunk of result.chunks) {
           const dataBytes = new Uint8Array(chunk.data);

@@ -73,12 +73,16 @@ function bytesToBase64(bytes: Uint8Array): string {
 /**
  * Create an SSE connection with auto-reconnect (exponential backoff).
  * Returns a Subscription whose `close()` permanently stops the stream.
+ *
+ * @param agentId — when set, the SSE URL is routed through a Manager's proxy
+ *   (`/v1/agents/:agentId/sessions/:id/stream`).
  */
 function openEventSource(
   url: string,
   headers: Record<string, string>,
   onEvent: (ev: StreamEvent) => void,
   onError: (err: Error) => void,
+  agentId?: string,
 ): { close: () => void } {
   let stopped = false;
   let attempt = 0;
@@ -177,6 +181,9 @@ function appendQueryToken(url: string, authHeader: string): string {
  *
  * Use the `createHttpSseTransport()` factory rather than instantiating directly,
  * so we can swap fetch implementations in tests.
+ *
+ * When `agentId` is supplied, API paths are prefixed with `/v1/agents/:aid/`
+ * so requests route through a Manager proxy to a specific Agent.
  */
 export class HttpSseTransport implements Transport {
   private readonly fetchImpl: typeof fetch;
@@ -185,16 +192,35 @@ export class HttpSseTransport implements Transport {
     this.fetchImpl = fetchImpl;
   }
 
-  async listSessions(ref: ServerRef): Promise<Session[]> {
-    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/sessions`, {
+  /** Build the base path for session-related API calls. */
+  private sessionUrl(
+    ref: ServerRef,
+    sessionId: string,
+    suffix: string,
+    agentId?: string,
+  ): string {
+    const base = ensureBaseUrl(ref);
+    const agent = agentId ? `/v1/agents/${encodeURIComponent(agentId)}` : '';
+    return `${base}${agent}/v1/sessions/${encodeURIComponent(sessionId)}${suffix}`;
+  }
+
+  /** Build a URL for agent-managed endpoints (sessions list, create). */
+  private agentsUrl(ref: ServerRef, agentId?: string): string {
+    const base = ensureBaseUrl(ref);
+    const agent = agentId ? `/v1/agents/${encodeURIComponent(agentId)}` : '';
+    return `${base}${agent}/v1/sessions`;
+  }
+
+  async listSessions(ref: ServerRef, agentId?: string): Promise<Session[]> {
+    const res = await this.fetchImpl(this.agentsUrl(ref, agentId), {
       headers: authHeaders(ref),
     });
     await checkOk(res, 'listSessions');
     return (await res.json()) as Session[];
   }
 
-  async createSession(ref: ServerRef, spec: SessionSpec): Promise<Session> {
-    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/sessions`, {
+  async createSession(ref: ServerRef, spec: SessionSpec, agentId?: string): Promise<Session> {
+    const res = await this.fetchImpl(this.agentsUrl(ref, agentId), {
       method: 'POST',
       headers: authHeaders(ref),
       body: JSON.stringify(spec),
@@ -203,18 +229,18 @@ export class HttpSseTransport implements Transport {
     return (await res.json()) as Session;
   }
 
-  async getSession(ref: ServerRef, id: string): Promise<Session> {
+  async getSession(ref: ServerRef, id: string, agentId?: string): Promise<Session> {
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}`,
+      this.sessionUrl(ref, id, '', agentId),
       { headers: authHeaders(ref) },
     );
     await checkOk(res, 'getSession');
     return (await res.json()) as Session;
   }
 
-  async killSession(ref: ServerRef, id: string): Promise<void> {
+  async killSession(ref: ServerRef, id: string, agentId?: string): Promise<void> {
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}`,
+      this.sessionUrl(ref, id, '', agentId),
       { method: 'DELETE', headers: authHeaders(ref) },
     );
     await checkOk(res, 'killSession');
@@ -247,10 +273,11 @@ export class HttpSseTransport implements Transport {
     id: string,
     cols: number,
     rows: number,
+    agentId?: string,
   ): Promise<void> {
     const body: ResizeRequest = { cols, rows };
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}/resize`,
+      this.sessionUrl(ref, id, '/resize', agentId),
       { method: 'POST', headers: authHeaders(ref), body: JSON.stringify(body) },
     );
     await checkOk(res, 'resizeSession');
@@ -261,11 +288,12 @@ export class HttpSseTransport implements Transport {
     id: string,
     fromOffset: number,
     limit?: number,
+    agentId?: string,
   ): Promise<FetchOutputResult> {
     const params = new URLSearchParams({ from: String(fromOffset) });
     if (limit != null) params.set('limit', String(limit));
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}/output?${params.toString()}`,
+      this.sessionUrl(ref, id, `/output?${params.toString()}`, agentId),
       { headers: authHeaders(ref) },
     );
     await checkOk(res, 'fetchOutput');
@@ -276,8 +304,9 @@ export class HttpSseTransport implements Transport {
     ref: ServerRef,
     id: string,
     handlers: SubscribeHandlers,
+    agentId?: string,
   ): Subscription {
-    const url = `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}/stream`;
+    const url = this.sessionUrl(ref, id, '/stream', agentId);
     const connection = openEventSource(
       url,
       { Authorization: `Bearer ${ref.token}` },
@@ -293,17 +322,61 @@ export class HttpSseTransport implements Transport {
         // 'heartbeat' is silently consumed
       },
       handlers.onError,
+      agentId,
     );
     return { close: () => connection.close() };
   }
 
-  async sendInput(ref: ServerRef, id: string, data: Uint8Array): Promise<void> {
+  async sendInput(ref: ServerRef, id: string, data: Uint8Array, agentId?: string): Promise<void> {
     const body: InputRequest = { data: bytesToBase64(data) };
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}/input`,
+      this.sessionUrl(ref, id, '/input', agentId),
       { method: 'POST', headers: authHeaders(ref), body: JSON.stringify(body) },
     );
     await checkOk(res, 'sendInput');
+  }
+
+  async listAgents(ref: ServerRef): Promise<{ id: string; name: string; baseUrl: string }[]> {
+    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/agents`, {
+      headers: authHeaders(ref),
+    });
+    await checkOk(res, 'listAgents');
+    return (await res.json()) as { id: string; name: string; baseUrl: string }[];
+  }
+
+  async addAgent(ref: ServerRef, agent: { name: string; baseUrl: string; token: string }): Promise<{ id: string }> {
+    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/agents`, {
+      method: 'POST',
+      headers: authHeaders(ref),
+      body: JSON.stringify(agent),
+    });
+    await checkOk(res, 'addAgent');
+    return (await res.json()) as { id: string };
+  }
+
+  async deleteAgent(ref: ServerRef, agentId: string): Promise<void> {
+    const res = await this.fetchImpl(
+      `${ensureBaseUrl(ref)}/v1/manager/agents/${encodeURIComponent(agentId)}`,
+      { method: 'DELETE', headers: authHeaders(ref) },
+    );
+    await checkOk(res, 'deleteAgent');
+  }
+
+  async login(ref: ServerRef, token: string): Promise<{ sessionToken: string }> {
+    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    await checkOk(res, 'login');
+    return (await res.json()) as { sessionToken: string };
+  }
+
+  async checkSession(ref: ServerRef): Promise<boolean> {
+    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/auth/me`, {
+      headers: { Authorization: `Bearer ${ref.token}` },
+    });
+    return res.ok;
   }
 }
 

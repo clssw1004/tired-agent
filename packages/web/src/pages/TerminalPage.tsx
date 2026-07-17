@@ -10,20 +10,23 @@ export function TerminalPage() {
   const navigate = useNavigate();
   const { servers } = useServerList();
   const server = id ? servers.find((s) => s.id === id) : undefined;
+  // The active agent is what we're proxying to through the Manager.
+  const agentId = server?.agentId;
 
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!server || !sid) return;
+    if (!server || !sid || !agentId) return;
     transport
       .getSession(
         { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token },
         sid,
+        agentId,
       )
       .then(setSession)
       .catch((e) => setError((e as Error).message));
-  }, [server, sid]);
+  }, [server, sid, agentId]);
 
   if (!server) {
     return (
@@ -53,6 +56,7 @@ export function TerminalPage() {
         baseUrl: server.baseUrl,
         token: server.token,
       }}
+      agentId={agentId ?? ''}
       sessionId={sid!}
       sessionStatus={session?.status ?? 'starting'}
       sessionLabel={session?.label || session?.cmd || '…'}

@@ -32,6 +32,8 @@ import { InputBar } from './InputBar';
 
 interface Props {
   serverRef: ServerRef;
+  /** Id of the Agent this session belongs to; used to route through the Manager proxy. */
+  agentId: string;
   sessionId: string;
   sessionStatus: SessionStatus | string;
   sessionLabel: string;
@@ -54,6 +56,7 @@ initRenderers();
 
 export function ChatContainer({
   serverRef,
+  agentId,
   sessionId,
   sessionStatus,
   sessionLabel,
@@ -88,11 +91,11 @@ export function ChatContainer({
     if (disabled || !data) return;
     try {
       const transport = createHttpSseTransport();
-      await transport.sendInput(serverRef, sessionId, ENCODER.encode(data));
+      await transport.sendInput(serverRef, sessionId, ENCODER.encode(data), agentId);
     } catch (err) {
       setTransportError((err as Error).message);
     }
-  }, [disabled, serverRef, sessionId]);
+  }, [disabled, serverRef, sessionId, agentId]);
 
   // Connect, replay history, subscribe to live chunks.
   useEffect(() => {
@@ -102,7 +105,7 @@ export function ChatContainer({
 
     (async () => {
       try {
-        const replay = await transport.fetchOutput(serverRef, sessionId, 0);
+        const replay = await transport.fetchOutput(serverRef, sessionId, 0, undefined, agentId);
         if (cancelled) return;
 
         const preview = replay.chunks
@@ -140,7 +143,7 @@ export function ChatContainer({
           },
           onState: () => { /* status pill driven by sessionStatus prop */ },
           onError: (e) => setTransportError(e.message),
-        });
+        }, agentId);
         if (cancelled) subscription.close();
       } catch (err) {
         if (!cancelled) setTransportError((err as Error).message);
@@ -152,7 +155,7 @@ export function ChatContainer({
       subscription?.close();
       rendererRef.current.reset();
     };
-  }, [sessionId, serverRef.id]);
+  }, [sessionId, serverRef.id, agentId]);
 
   // If session metadata loads asynchronously (TerminalPage fetches Session),
   // re-select the renderer with the actual cmd/args.

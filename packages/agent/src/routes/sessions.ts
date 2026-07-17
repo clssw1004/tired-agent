@@ -167,9 +167,6 @@ export function registerSessionsRoutes(
           error: { code: 'VALIDATION_ERROR', message: parsed.error.message },
         });
       }
-      // Storage is injected via a request-scoped helper; for now we access it
-      // via the app's DI container (set in index.ts).
-      const storage = req.server.storage;
       const result = storage.readOutput(id, parsed.data.from, parsed.data.limit);
       return reply.code(200).send({
         chunks: result.chunks.map((c) => ({
