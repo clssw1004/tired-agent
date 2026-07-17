@@ -26,9 +26,13 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Storage } from '../storage.js';
 import { log } from '../util/log.js';
 
-/** Build the upstream URL for a non-stream proxy call. */
+/** Build the upstream URL for a non-stream proxy call.
+ *  Appends ?access_token= or &access_token= depending on whether the
+ *  upstream path already carries query parameters. */
 function buildAgentUrl(base: string, path: string, token: string): string {
-  return `${base.replace(/\/+$/, '')}${path}?access_token=${encodeURIComponent(token)}`;
+  const clean = base.replace(/\/+$/, '');
+  const sep = path.includes('?') ? '&' : '?';
+  return `${clean}${path}${sep}access_token=${encodeURIComponent(token)}`;
 }
 
 /**
