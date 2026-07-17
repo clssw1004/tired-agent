@@ -7,7 +7,7 @@
  *   - PostgresStorage (via pg)
  */
 
-import { appendFileSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { appendFileSync, statSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -26,13 +26,23 @@ export interface Storage {
   init(): Promise<void>;
   insert(session: SessionRecord): void;
   update(partial: Partial<SessionRecord> & { id: string }): void;
+  /** Permanently remove a session row + its append-only log file. */
+  delete(id: string): boolean;
   list(): SessionRecord[];
+  /** If status is given, only sessions matching the status are returned. */
+  list(status?: SessionStatus): SessionRecord[];
   get(id: string): SessionRecord | undefined;
   appendOutput(id: string, data: Uint8Array): number;
   readOutput(id: string, fromOffset: number, limit?: number): {
     chunks: Array<{ offset: number; data: Uint8Array }>;
     upTo: number;
   };
+  /**
+   * Delete all sessions whose `exitedAt` (or, for sessions still flagged
+   * `running`, their `createdAt`) is older than `olderThanMs`.
+   * Returns the count removed. Used to keep the DB from growing forever.
+   */
+  pruneOlderThan(olderThanMs: number): number;
   close(): Promise<void>;
 }
 
@@ -98,15 +108,47 @@ export function createSqliteStorage(dataDir: string): Storage {
     db().prepare(`UPDATE sessions SET ${fields.join(',')} WHERE id=?`).run(...values);
   }
 
-  function list(): SessionRecord[] {
+  function list(status?: SessionStatus): SessionRecord[] {
+    const d = db();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return db().prepare('SELECT * FROM sessions ORDER BY createdAt DESC').all().map((r: any) => deserialize(r));
+    const rows: any[] = status
+      ? d.prepare('SELECT * FROM sessions WHERE status=? ORDER BY createdAt DESC').all(status)
+      : d.prepare('SELECT * FROM sessions ORDER BY createdAt DESC').all();
+    return rows.map((r) => deserialize(r));
   }
 
   function get(id: string): SessionRecord | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r: any = db().prepare('SELECT * FROM sessions WHERE id=?').get(id);
     return r ? deserialize(r) : undefined;
+  }
+
+  function deleteSession(id: string): boolean {
+    const d = db();
+    const r = d.prepare('DELETE FROM sessions WHERE id=?').run(id);
+    if (r.changes === 0) return false;
+    const logPath = join(dataDir, 'sessions', `${id}.log`);
+    if (existsSync(logPath)) {
+      try { unlinkSync(logPath); } catch { /* ignore */ }
+    }
+    return true;
+  }
+
+  function pruneOlderThan(olderThanMs: number): number {
+    const d = db();
+    const cutoff = Date.now() - olderThanMs;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = d
+      .prepare(`SELECT id, status, createdAt, exitedAt FROM sessions`)
+      .all();
+    let count = 0;
+    for (const r of rows) {
+      const ref = r.status === 'exited' ? r.exitedAt : r.createdAt;
+      if (ref && ref < cutoff) {
+        if (deleteSession(r.id)) count++;
+      }
+    }
+    return count;
   }
 
   function appendOutput(id: string, data: Uint8Array): number {
@@ -149,7 +191,7 @@ export function createSqliteStorage(dataDir: string): Storage {
     };
   }
 
-  return { init, insert, update, list, get, appendOutput, readOutput, close };
+  return { init, insert, update, delete: deleteSession, list, get, appendOutput, readOutput, pruneOlderThan, close };
 }
 
 // ─── MySQL ────────────────────────────────────────────────────────────────────
@@ -158,6 +200,18 @@ export interface MysqlConfig { host: string; port?: number; user: string; passwo
 export function createMysqlStorage(_: MysqlConfig): Storage {
   throw new Error('MysqlStorage: implementation pending');
 }
+export const _mysqlStub: Storage = {
+  async init() { throw new Error('not implemented'); },
+  insert() { throw new Error('not implemented'); },
+  update() { throw new Error('not implemented'); },
+  delete() { throw new Error('not implemented'); },
+  list() { return []; },
+  get() { return undefined; },
+  appendOutput() { return 0; },
+  readOutput() { return { chunks: [], upTo: 0 }; },
+  pruneOlderThan() { return 0; },
+  async close() { /* noop */ },
+};
 
 // ─── PostgreSQL ───────────────────────────────────────────────────────────────
 
@@ -165,6 +219,18 @@ export interface PostgresConfig { connectionString: string; }
 export function createPostgresStorage(_: PostgresConfig): Storage {
   throw new Error('PostgresStorage: implementation pending');
 }
+export const _postgresStub: Storage = {
+  async init() { throw new Error('not implemented'); },
+  insert() { throw new Error('not implemented'); },
+  update() { throw new Error('not implemented'); },
+  delete() { throw new Error('not implemented'); },
+  list() { return []; },
+  get() { return undefined; },
+  appendOutput() { return 0; },
+  readOutput() { return { chunks: [], upTo: 0 }; },
+  pruneOlderThan() { return 0; },
+  async close() { /* noop */ },
+};
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
