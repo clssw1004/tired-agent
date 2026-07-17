@@ -102,86 +102,58 @@ export function ChatView({
     return () => window.clearInterval(t);
   }, []);
 
-  /** Apply a RenderOutput to the segment list, respecting displayMode. */
+  /** Apply a RenderOutput by mutating `segmentsRef.current` synchronously
+   *  (not via setSegments closure), eliminating the race between submit()
+   *  creating optimistic segments and SSE callbacks arriving before React
+   *  commits the batched update. */
   const applyRender = useCallback((out: RenderOutput) => {
     if (!out.contents.length) return;
-    setSegments((prev) => {
-      const list = prev.slice();
-      const last = list[list.length - 1];
+    const list = segmentsRef.current.slice();
+    const last = list[list.length - 1];
 
-      switch (out.displayMode as DisplayMode) {
-        case 'replace-last': {
-          if (last && last.kind === 'assistant') {
-            // Replace the last block(s) in the last assistant segment.
-            // If the new output is a single ContentStatus with ephemeral,
-            // we patch the *last* status block in place; otherwise we
-            // append.
-            const seg = { ...last, blocks: (last.blocks ?? []).slice() };
-            const firstNew = out.contents[0]!;
-            if (out.contents.length === 1 && firstNew.type === 'status' && firstNew.ephemeral) {
-              const blocks = seg.blocks!;
-              for (let i = blocks.length - 1; i >= 0; i--) {
-                if (blocks[i]!.type === 'status') {
-                  blocks[i] = firstNew;
-                  seg.blocks = blocks;
-                  list[list.length - 1] = seg;
-                  return list;
-                }
+    switch (out.displayMode as DisplayMode) {
+      case 'replace-last':
+        if (last && last.kind === 'assistant') {
+          const seg = { ...last, blocks: (last.blocks ?? []).slice() };
+          const firstNew = out.contents[0]!;
+          if (out.contents.length === 1 && firstNew.type === 'status' && firstNew.ephemeral) {
+            for (let i = seg.blocks!.length - 1; i >= 0; i--) {
+              if (seg.blocks![i]!.type === 'status') {
+                seg.blocks![i] = firstNew;
+                list[list.length - 1] = seg;
+                segmentsRef.current = list; setSegments(list); return;
               }
             }
-            seg.blocks = (seg.blocks ?? []).concat(out.contents);
-            list[list.length - 1] = seg;
-          } else {
-            list.push({
-              id: ++idRef.current,
-              kind: 'assistant',
-              blocks: out.contents,
-              ts: Date.now(),
-            });
           }
-          return list;
+          seg.blocks = (seg.blocks ?? []).concat(out.contents);
+          list[list.length - 1] = seg;
+        } else {
+          list.push({ id: ++idRef.current, kind: 'assistant', blocks: out.contents, ts: Date.now() });
         }
-        case 'snapshot': {
-          // Find the last segment with the same snapshotTag (or the last
-          // assistant segment if no tag) and replace it.
-          const tag = out.snapshotTag;
-          let replaceIdx = -1;
-          for (let i = list.length - 1; i >= 0; i--) {
-            const s = list[i]!;
-            if (s.kind !== 'assistant') break;
-            if (tag && s.snapshotTag === tag) { replaceIdx = i; break; }
-            if (!tag && (s.snapshotTag || s.snapshotTag === undefined)) {
-              replaceIdx = i;
-            }
-          }
-          const seg: Segment = {
-            id: ++idRef.current,
-            kind: 'assistant',
-            blocks: out.contents,
-            ts: Date.now(),
-            snapshotTag: tag,
-          };
-          if (replaceIdx >= 0) list[replaceIdx] = seg;
-          else list.push(seg);
-          return list;
+        segmentsRef.current = list; setSegments(list); return;
+      case 'snapshot': {
+        const tag = out.snapshotTag;
+        let replaceIdx = -1;
+        for (let i = list.length - 1; i >= 0; i--) {
+          const s = list[i]!;
+          if (s.kind !== 'assistant') break;
+          if (tag && s.snapshotTag === tag) { replaceIdx = i; break; }
+          if (!tag) { replaceIdx = i; }
         }
-        case 'chat':
-        default: {
-          if (last && last.kind === 'assistant') {
-            const seg = { ...last, blocks: (last.blocks ?? []).slice().concat(out.contents) };
-            list[list.length - 1] = seg;
-          } else {
-            list.push({
-              id: ++idRef.current,
-              kind: 'assistant',
-              blocks: out.contents,
-              ts: Date.now(),
-            });
-          }
-          return list;
-        }
+        const seg = { id: ++idRef.current, kind: 'assistant' as const, blocks: out.contents, ts: Date.now(), snapshotTag: tag };
+        if (replaceIdx >= 0) list[replaceIdx] = seg; else list.push(seg);
+        segmentsRef.current = list; setSegments(list); return;
       }
-    });
+      case 'chat':
+      default:
+        if (last && last.kind === 'assistant') {
+          const seg = { ...last, blocks: (last.blocks ?? []).slice().concat(out.contents) };
+          list[list.length - 1] = seg;
+        } else {
+          list.push({ id: ++idRef.current, kind: 'assistant', blocks: out.contents, ts: Date.now() });
+        }
+        segmentsRef.current = list; setSegments(list); return;
+    }
   }, []);
 
   // ── SSE subscribe + replay ─────────────────────────────────────────────
@@ -289,16 +261,22 @@ export function ChatView({
     if (!text) return;
     setSending(true);
 
-    // Flush renderer before user send.
+    // Flush renderer before user send — goes into current assistant segment.
     const flushed = rendererRef.current.flush();
     if (flushed.contents.length > 0) applyRender(flushed);
 
-    const nextId = (segmentsRef.current.reduce((m, s) => Math.max(m, s.id), 0) || 0) + 1;
-    setSegments((prev) => [
-      ...prev,
+    // Create optimistic user + empty assistant segments synchronously on
+    // the ref (not via setSegments closure), so appendRender from the very
+    // next SSE chunk finds the correct segment regardless of React batching.
+    const segmentsList = segmentsRef.current;
+    const nextId = (segmentsList.reduce((m, s) => Math.max(m, s.id), 0) || 0) + 1;
+    const updated: Segment[] = [
+      ...segmentsList,
       { id: nextId, kind: 'user', text, ts: Date.now() },
       { id: nextId + 1, kind: 'assistant', blocks: [], ts: Date.now() },
-    ]);
+    ];
+    segmentsRef.current = updated;
+    setSegments(updated);
     input.value = '';
     input.focus();
 
