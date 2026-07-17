@@ -5,30 +5,45 @@
  *   npm run dev -- --token=<secret> --port=8443 --data=./data
  *   node dist/index.js --token=<secret> --port=8443 --data=./data
  *
- * Environment variables also work:
- *   CLSSW_TOKEN=<secret>
- *   PORT=8443
- *   CLSSW_DATA=/path/to/data
- *   STORAGE_KIND=sqlite   # or 'mysql' / 'postgres'
- *   CLSSW_PERMISSIVE_CORS=1
+ * Configuration sources, in priority order (highest first):
+ *   1. CLI flags         — e.g. --port 8443 --data ./data --token <secret>
+ *   2. Process env vars  — e.g. CLSSW_TOKEN=…  PORT=8443  CLSSW_DATA=…
+ *   3. packages/server/.env file (loaded at startup; never overrides existing env)
  *
- * MySQL config (when STORAGE_KIND=mysql):
+ * Recognised environment variables:
+ *   CLSSW_TOKEN=<secret>          Bearer token (REQUIRED, ≥8 chars)
+ *   PORT=8443                     TCP port to listen on
+ *   HOST=127.0.0.1                Network interface to bind
+ *   CLSSW_DATA=/path/to/data      SQLite DB + PTY log directory
+ *   STORAGE_KIND=sqlite           sqlite | mysql | postgres
+ *   CLSSW_PERMISSIVE_CORS=1       Allow any CORS origin (also default-on)
+ *   CLSSW_STRICT_CORS=1           Disable permissive CORS (production)
+ *
+ * MySQL (when STORAGE_KIND=mysql):
  *   MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
  *
- * PostgreSQL config (when STORAGE_KIND=postgres):
+ * PostgreSQL (when STORAGE_KIND=postgres):
  *   POSTGRES_CONNECTION_STRING
  */
+
+import { config as loadDotenv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+// Load .env from the server package root, regardless of process.cwd().
+// By default dotenv does NOT override existing process.env entries, so CLI flags
+// and pre-exported vars stay higher-priority than values declared in .env.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadDotenv({ path: resolve(__dirname, '../.env') });
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { loadConfig, validateConfig } from './config.js';
 import { createStorage } from './session/storage.js';
-import type { Storage } from './session/storage.js';
 import { SessionManager } from './session/manager.js';
 import { registerAuth } from './auth.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerStreamRoute } from './routes/stream.js';
-import { registerWebRoutes } from './web/routes.js';
 import { log } from './util/log.js';
 import type { StorageKind } from './session/storage.js';
 import './types.js'; // module augmentation for FastifyInstance.storage
@@ -71,24 +86,34 @@ async function main(argv: string[]) {
   app.storage = storage;
 
   // ── CORS ───────────────────────────────────────────────────────────────
-  // Enabled by default for local/web use. Set CLSSW_STRICT_CORS=1 to disable.
-  const strictCors = process.env['CLSSW_STRICT_CORS'] === '1';
-  if (!strictCors) {
+  // Three modes (see config.ts for resolution rules):
+  //   'off'        → register nothing (same-origin via reverse proxy).
+  //   'allowlist'  → only the explicit origins in `cfg.corsOrigins`.
+  //   'wildcard'   → echo back whatever Origin the browser sends (dev conv.).
+  if (cfg.corsMode === 'off') {
+    log.info('CORS disabled — assume SPA + API share an origin (reverse-proxy it)');
+  } else if (cfg.corsMode === 'allowlist') {
+    await app.register(cors, {
+      origin: cfg.corsOrigins,
+      credentials: false,
+      methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
+    });
+    log.info({ origins: cfg.corsOrigins }, 'CORS allowlist active');
+  } else {
     await app.register(cors, {
       origin: true,
       credentials: false,
       methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
     });
-    log.info('CORS enabled (all origins) — set CLSSW_STRICT_CORS=1 to disable');
+    log.info('CORS wildcard — set CORS_ORIGIN or CLSSW_STRICT_CORS=1 to tighten');
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────
   registerAuth(app, cfg.token);
 
   // ── Routes ─────────────────────────────────────────────────────────────
-  registerSessionsRoutes(app, manager);
-  registerStreamRoute(app, manager);
-  await registerWebRoutes(app);
+  registerSessionsRoutes(app, manager, cfg);
+  registerStreamRoute(app, manager, cfg);
 
   // Health check (no auth required)
   app.get('/health', async (_req, reply) => reply.code(200).send({ status: 'ok', ts: Date.now() }));

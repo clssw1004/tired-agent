@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+.env
+.env.local
+
+# Runtime data for server (SQLite DB + PTY log files)
+packages/server/data/
+
+# Expo
+.expo/
+.expo-shared/
+web-build/
+
+# TypeScript
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# Local test artifacts
+coverage/
+*.tmp

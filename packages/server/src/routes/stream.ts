@@ -11,11 +11,23 @@
  * Subscribers receive events for as long as the connection is open.
  * The connection is filterable by query param `?from=N` to replay missed
  * output on reconnect (the client sends the last byte offset it has seen).
+ *
+ * Wire format of the `data:` payload in `output` events depends on
+ * `CLSSW_SSE_FORMAT`:
+ *   base64 (default) — `data` is a base64 string of the raw PTY bytes
+ *   hex              — `data` is a lowercase hex string of the raw bytes
+ *                      (debug mode; lets you copy bytes straight from
+ *                      `curl -N` without a decoder handy)
+ *
+ * When `CLSSW_DEBUG_SSE=1`, the server also logs a hex+ASCII dump of every
+ * chunk to its own log — local debugging only.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SessionManager } from '../session/manager.js';
+import type { ServerConfig } from '../config.js';
 import { log } from '../util/log.js';
+import { hexAsciiDump } from '../util/hex-dump.js';
 import '../types.js'; // module augmentation for FastifyInstance.storage
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -23,7 +35,19 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 interface StreamParams { id: string }
 interface StreamQuery { access_token?: string; from?: string }
 
-export function registerStreamRoute(app: FastifyInstance, manager: SessionManager): void {
+/** Encode raw PTY bytes as a string suitable for the SSE `data:` line. */
+function encodeChunk(bytes: Uint8Array, format: 'base64' | 'hex'): string {
+  if (format === 'hex') {
+    return Buffer.from(bytes).toString('hex');
+  }
+  return Buffer.from(bytes).toString('base64');
+}
+
+export function registerStreamRoute(
+  app: FastifyInstance,
+  manager: SessionManager,
+  cfg: Pick<ServerConfig, 'sseFormat' | 'sseDebugLog'>,
+): void {
   app.get<{ Params: StreamParams; Querystring: StreamQuery }>(
     '/v1/sessions/:id/stream',
     { config: { raw: true } },
@@ -57,17 +81,22 @@ export function registerStreamRoute(app: FastifyInstance, manager: SessionManage
       // Flush headers immediately so EventSource can connect
       reply.raw.flushHeaders();
 
-      let unsubscribed = false;
+      // Log format/upgrades along with the connect event so curl+grep is easy.
+      log.debug({ sessionId: id, fromOffset, format: cfg.sseFormat, debug: cfg.sseDebugLog }, 'SSE client connected');
 
       // ── Replay missed output ────────────────────────────────────────────
       if (fromOffset < session.byteOffset) {
         const storage = req.server.storage;
         const result = storage.readOutput(id, fromOffset);
         for (const chunk of result.chunks) {
+          const dataBytes = new Uint8Array(chunk.data);
+          if (cfg.sseDebugLog) {
+            log.debug({ replay: true, off: chunk.offset, len: dataBytes.byteLength, dump: hexAsciiDump(dataBytes) }, 'sse-replay-output');
+          }
           reply.raw.write(
             `event: output\ndata: ${JSON.stringify({
               offset: chunk.offset,
-              data: Buffer.from(chunk.data).toString('base64'),
+              data: encodeChunk(dataBytes, cfg.sseFormat),
             })}\n\n`,
           );
         }
@@ -90,10 +119,13 @@ export function registerStreamRoute(app: FastifyInstance, manager: SessionManage
       const unsubscribe = manager.subscribe(id, (ev) => {
         if (reply.raw.writableEnded) return;
         if (ev.type === 'output') {
+          if (cfg.sseDebugLog) {
+            log.debug({ off: ev.offset, len: ev.data.byteLength, dump: hexAsciiDump(ev.data) }, 'sse-live-output');
+          }
           reply.raw.write(
             `event: output\ndata: ${JSON.stringify({
               offset: ev.offset,
-              data: Buffer.from(ev.data).toString('base64'),
+              data: encodeChunk(ev.data, cfg.sseFormat),
             })}\n\n`,
           );
         } else if (ev.type === 'state') {
@@ -103,7 +135,6 @@ export function registerStreamRoute(app: FastifyInstance, manager: SessionManage
 
       // ── Cleanup on close ───────────────────────────────────────────────
       req.raw.on('close', () => {
-        unsubscribed = true;
         unsubscribe();
         clearInterval(heartbeatTimer);
         log.debug({ sessionId: id }, 'SSE client disconnected');

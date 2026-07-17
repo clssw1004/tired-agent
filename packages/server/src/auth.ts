@@ -9,16 +9,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 export function registerAuth(app: FastifyInstance, token: string): void {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    // Skip auth for public endpoints
-    const url = req.url.split('?')[0] ?? req.url; // strip query string
-    if (
-      url === '/health' ||
-      url === '/favicon.ico' ||
-      url === '/' ||
-      url.startsWith('/web')    // SPA + assets
-    ) {
-      return;
-    }
+    // Skip auth for health check and CORS preflights. Preflights must be
+    // answered *without* credentials or browsers will block the real request.
+    if (req.url.split('?')[0] === '/health') return;
+    if (req.method === 'OPTIONS') return;
 
     const header = req.headers['authorization'] ?? '';
     const provided = header.startsWith('Bearer ')

@@ -11,9 +11,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { SessionSpec } from '@tired-pc/protocol';
+import type { ServerConfig } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import type { Storage } from '../session/storage.js';
 import { log } from '../util/log.js';
+import { hexAsciiDump } from '../util/hex-dump.js';
 
 const SessionSpecSchema: z.ZodType<SessionSpec> = z.object({
   cmd: z.string().min(1),
@@ -35,7 +37,11 @@ const OutputQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(10 * 1024 * 1024).optional(),
 });
 
-export function registerSessionsRoutes(app: FastifyInstance, manager: SessionManager): void {
+export function registerSessionsRoutes(
+  app: FastifyInstance,
+  manager: SessionManager,
+  cfg: Pick<ServerConfig, 'sseDebugLog'>,
+): void {
   // ── List ────────────────────────────────────────────────────────────────
   app.get('/v1/sessions', async (req, reply) => {
     const sessions = manager.list();
@@ -177,7 +183,11 @@ export function registerSessionsRoutes(app: FastifyInstance, manager: SessionMan
       }
       try {
         const buf = Buffer.from(body.data, 'base64');
-        manager.write(id, new Uint8Array(buf));
+        const bytes = new Uint8Array(buf);
+        if (cfg.sseDebugLog) {
+          log.debug({ sessionId: id, len: bytes.byteLength, dump: hexAsciiDump(bytes) }, 'sse-input');
+        }
+        manager.write(id, bytes);
         return reply.code(204).send();
       } catch (err) {
         return reply.code(500).send({
