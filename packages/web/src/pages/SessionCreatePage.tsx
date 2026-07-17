@@ -53,7 +53,7 @@ export function SessionCreatePage() {
   if (!server) {
     return (
       <div className="page">
-        <div className="empty">Server not found</div>
+        <div className="empty">Agent not found</div>
       </div>
     );
   }
@@ -63,7 +63,7 @@ export function SessionCreatePage() {
       <div className="page-inner" style={{ maxWidth: 540 }}>
         <div className="page-header">
           <div className="page-title">New Session</div>
-          <div className="page-subtitle">{server.baseUrl}</div>
+          <div className="page-subtitle">{server.agentBaseUrl}</div>
         </div>
 
         {error && (

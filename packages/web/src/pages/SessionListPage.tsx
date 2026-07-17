@@ -85,8 +85,8 @@ export function SessionListPage() {
       <div className="page">
         <div className="page-inner">
           <div className="empty">
-            <div className="empty-text">Server not found</div>
-            <button onClick={() => navigate('/servers')}>Back to Servers</button>
+            <div className="empty-text">Agent not found</div>
+            <button onClick={() => navigate('/servers')}>Back to Agents</button>
           </div>
         </div>
       </div>
@@ -108,11 +108,11 @@ export function SessionListPage() {
       <div className="page-inner">
         <div className="page-header">
           <div>
-            <div className="page-title">{server.name || server.baseUrl}</div>
-            <div className="page-subtitle">{server.baseUrl}</div>
+            <div className="page-title">{server.name || 'Agent'}</div>
+            <div className="page-subtitle">{server.agentBaseUrl}</div>
           </div>
           <div className="toolbar">
-            <button onClick={() => navigate('/servers')}>← Servers</button>
+            <button onClick={() => navigate('/servers')}>← Agents</button>
             <button onClick={() => navigate(`/servers/${server.id}/sessions/new`)}>
               + New Session
             </button>
@@ -162,7 +162,7 @@ export function SessionListPage() {
             </div>
             <div className="empty-hint">
               {sessions.length === 0
-                ? 'Create a session to start a command on this server.'
+                ? 'Create a session to start a command on this agent.'
                 : 'Try a different status filter.'}
             </div>
           </div>
