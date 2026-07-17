@@ -19,7 +19,7 @@ export function SessionCreatePage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    if (!server) {
+    if (!server || !server.agentId) {
       setError('Server not found');
       return;
     }
@@ -40,6 +40,7 @@ export function SessionCreatePage() {
           cols,
           rows,
         },
+        server.agentId,
       );
       navigate(`/servers/${server.id}/sessions/${session.id}`);
     } catch (e) {

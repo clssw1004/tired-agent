@@ -1,87 +1,88 @@
 /**
- * Server list store — Context-based, shared across all components.
+ * ServerContext — thin compatibility shim over `AuthContext`.
  *
- * Initialized once at app mount from localStorage; updates are
- * persisted synchronously so navigating between pages works.
+ * Originally this module held the localStorage-backed server list. Now that
+ * the SPA talks to a Manager, the per-user "server" notion is gone — every
+ * `ServerRef` carries the Manager URL + session token, and the agent being
+ * proxied to is identified by the new `agentId` field.
+ *
+ * The shape exposed here matches the old API closely so existing page code
+ * (`useServerList()` consumers) keeps working: they call
+ * `servers.find(s => s.id === id)` to look up a ref and pass it to the
+ * transport. The transport call site now also needs the `agentId` — see
+ * the page updates in `src/pages/`.
  */
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
-import type { ServerRef } from '@tired-pc/protocol';
+import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import type { ServerRef } from '@tired-pc/protocol';
+import { useAuth } from './AuthContext';
 
-const STORAGE_KEY = 'tired-pc:servers';
-const ACTIVE_KEY = 'tired-pc:active-server';
-
-function loadServers(): ServerRef[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ServerRef[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveServers(servers: ServerRef[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(servers));
+/**
+ * ServerRef augmented with the id of the agent being proxied to.
+ * `baseUrl` and `token` always refer to the Manager.
+ */
+export interface AgentServerRef extends ServerRef {
+  agentId: string;
 }
 
 interface ServerContextValue {
-  servers: ServerRef[];
+  servers: AgentServerRef[];
   activeId: string | null;
   setActiveId: (id: string | null) => void;
-  addServer: (partial: Omit<ServerRef, 'id'>) => string;
-  updateServer: (id: string, patch: Partial<Omit<ServerRef, 'id'>>) => void;
+  addServer: (partial: Omit<AgentServerRef, 'id'>) => string;
+  updateServer: (id: string, patch: Partial<Omit<AgentServerRef, 'id'>>) => void;
   removeServer: (id: string) => void;
-  getServer: (id: string) => ServerRef | undefined;
+  getServer: (id: string) => AgentServerRef | undefined;
 }
 
 const ServerContext = createContext<ServerContextValue | null>(null);
 
 export function ServerProvider({ children }: { children: ReactNode }) {
-  const [servers, setServers] = useState<ServerRef[]>(loadServers);
-  const [activeId, setActiveIdState] = useState<string | null>(
-    () => localStorage.getItem(ACTIVE_KEY),
+  const { agents, managerBaseUrl, sessionToken, addAgent, deleteAgent } = useAuth();
+
+  const servers = useMemo<AgentServerRef[]>(
+    () =>
+      agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        baseUrl: managerBaseUrl ?? '',
+        token: sessionToken ?? '',
+        agentId: a.id,
+      })),
+    [agents, managerBaseUrl, sessionToken],
   );
 
-  // Persist servers on every change
-  useEffect(() => {
-    saveServers(servers);
-  }, [servers]);
-
-  const setActiveId = useCallback((id: string | null) => {
-    setActiveIdState(id);
-    if (id) localStorage.setItem(ACTIVE_KEY, id);
-    else localStorage.removeItem(ACTIVE_KEY);
-  }, []);
-
-  const addServer = useCallback((partial: Omit<ServerRef, 'id'>): string => {
-    const id = `srv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const server: ServerRef = { id, ...partial };
-    setServers((s) => [...s, server]);
-    return id;
-  }, []);
-
-  const updateServer = useCallback(
-    (id: string, patch: Partial<Omit<ServerRef, 'id'>>) => {
-      setServers((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    },
-    [],
-  );
-
-  const removeServer = useCallback((id: string) => {
-    setServers((s) => s.filter((x) => x.id !== id));
-  }, []);
-
-  const getServer = useCallback(
-    (id: string) => servers.find((x) => x.id === id),
-    [servers],
-  );
-
+  // Legacy mutation helpers — they delegate to the AuthContext APIs and
+  // return a synthesized id so existing call sites keep their shape.
   const value = useMemo<ServerContextValue>(
-    () => ({ servers, activeId, setActiveId, addServer, updateServer, removeServer, getServer }),
-    [servers, activeId, setActiveId, addServer, updateServer, removeServer, getServer],
+    () => ({
+      servers,
+      activeId: null,
+      setActiveId: () => {
+        /* no-op: routing decides the active agent via URL params */
+      },
+      addServer: (partial) => {
+        // Fire-and-forget; the caller doesn't await the manager round-trip
+        // before navigating. We return a temporary id so the caller's
+        // `navigate(/servers/:id)` works while the new agent loads.
+        const tempId = `pending_${Date.now()}`;
+        void addAgent(partial.name, partial.baseUrl, partial.token);
+        return tempId;
+      },
+      updateServer: (id, patch) => {
+        // For simplicity we treat update as delete+add. The Manager API
+        // doesn't expose PUT in the transport contract used here.
+        void deleteAgent(id).then(() =>
+          addAgent(patch.name ?? id, patch.baseUrl ?? '', patch.token ?? ''),
+        );
+      },
+      removeServer: (id) => {
+        void deleteAgent(id);
+      },
+      getServer: (id) => servers.find((s) => s.id === id),
+    }),
+    [servers, addAgent, deleteAgent],
   );
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;

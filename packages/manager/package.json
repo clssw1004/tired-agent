@@ -1,35 +1,31 @@
 {
-  "name": "@tired-pc/server",
+  "name": "@tired-pc/manager",
   "version": "0.1.0",
   "private": true,
-  "description": "tired-pc server daemon — PTY session manager with pluggable storage",
+  "description": "tired-pc manager — web portal + agent proxy + SPA host",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts --",
-    "dev:host": "tsx watch --env-file=.env.dev src/index.ts --host 0.0.0.0",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx test/*.test.ts",
     "clean": "rm -rf dist data"
   },
   "dependencies": {
+    "@tired-pc/protocol": "*",
     "@fastify/cors": "^9.0.1",
+    "@fastify/static": "^7.0.4",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "fastify": "^4.28.1",
     "kysely": "^0.27.4",
-    "mysql2": "^3.11.0",
-    "node-pty": "^1.0.0",
-    "pg": "^8.12.0",
     "pino": "^9.2.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.10",
     "@types/node": "^20.14.10",
-    "@types/pg": "^8.11.6",
     "tsx": "^4.16.0",
     "typescript": "^5.4.5"
   }

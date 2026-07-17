@@ -12,6 +12,9 @@ export function SessionListPage() {
   const { id } = useParams<{ id: string }>();
   const { servers } = useServerList();
   const server = id ? servers.find((s) => s.id === id) : undefined;
+  // Each ServerRef now represents an Agent; route every call through the
+  // Manager proxy using the agent's id.
+  const agentId = server?.agentId;
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,21 +22,20 @@ export function SessionListPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [pruneInfo, setPruneInfo] = useState<number | null>(null);
 
+  const serverRef = server
+    ? { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token }
+    : null;
+
   const load = useCallback(async () => {
-    if (!server) return;
+    if (!serverRef || !agentId) return;
     try {
-      const list = await transport.listSessions({
-        id: server.id,
-        name: server.name,
-        baseUrl: server.baseUrl,
-        token: server.token,
-      });
+      const list = await transport.listSessions(serverRef, agentId);
       setSessions(list);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [server]);
+  }, [serverRef, agentId]);
 
   useEffect(() => {
     load();
@@ -42,13 +44,10 @@ export function SessionListPage() {
   }, [load]);
 
   const handleKill = async (sessionId: string) => {
-    if (!server) return;
+    if (!serverRef || !agentId) return;
     if (!confirm('Kill this session? The process will be terminated.')) return;
     try {
-      await transport.killSession(
-        { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token },
-        sessionId,
-      );
+      await transport.killSession(serverRef, sessionId, agentId);
       await load();
     } catch (e) {
       alert((e as Error).message);
@@ -56,13 +55,10 @@ export function SessionListPage() {
   };
 
   const handleDelete = async (sessionId: string) => {
-    if (!server) return;
+    if (!serverRef) return;
     if (!confirm('Delete this (already exited) session? Log file is removed too.')) return;
     try {
-      await transport.deleteSession(
-        { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token },
-        sessionId,
-      );
+      await transport.deleteSession(serverRef, sessionId);
       await load();
     } catch (e) {
       alert((e as Error).message);
@@ -70,14 +66,11 @@ export function SessionListPage() {
   };
 
   const handlePrune = async () => {
-    if (!server) return;
+    if (!serverRef) return;
     if (!confirm('Drop all sessions whose last activity is older than 24 hours?')) return;
     setLoading(true);
     try {
-      const r = await transport.pruneSessions(
-        { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token },
-        24,
-      );
+      const r = await transport.pruneSessions(serverRef, 24);
       setPruneInfo(r.removed);
       await load();
     } catch (e) {

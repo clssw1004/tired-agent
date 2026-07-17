@@ -5,15 +5,18 @@
   "description": "tired-pc — remote persistent interactive session system. Let your home PC work overtime, even while you're out.",
   "workspaces": [
     "packages/protocol",
-    "packages/server",
+    "packages/agent",
+    "packages/manager",
     "packages/web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "build:protocol": "npm run build -w @tired-pc/protocol",
-    "build:server": "npm run build -w @tired-pc/server",
+    "build:agent": "npm run build -w @tired-pc/agent",
+    "build:manager": "npm run build -w @tired-pc/manager",
     "build:web": "npm run build -w @tired-pc/web",
-    "dev:server": "npm run dev -w @tired-pc/server",
+    "dev:agent": "npm run dev -w @tired-pc/agent",
+    "dev:manager": "npm run dev -w @tired-pc/manager",
     "dev:web": "npm run dev -w @tired-pc/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

@@ -1,16 +1,12 @@
 /**
- * tired-pc server daemon — entry point.
- *
- * Orchestrates bootstrapping; heavy lifting lives in app.ts / shutdown.ts.
- *
- * See config.ts for the full list of env variables and CLI flags.
+ * tired-pc agent daemon — PTY executor entry point.
  */
 
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// Load .env from the server package root, regardless of process.cwd().
+// Load .env from the agent package root, regardless of process.cwd().
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: resolve(__dirname, '../.env') });
 
@@ -46,16 +42,13 @@ async function main(argv: string[]) {
   await storage.init();
   log.info({ dataDir: cfg.dataDir, storageKind: process.env['STORAGE_KIND'] ?? 'sqlite' }, 'storage initialized');
 
-  // Reconcile stale DB rows from a previous run.
   const manager = new SessionManager(storage);
   const reconciled = manager.reconcileWithStorage();
   if (reconciled > 0) log.warn({ reconciled }, 'orphaned sessions marked exited on startup');
   manager.startCleanupTimer();
 
-  // Build the Fastify server.
   const app = await createApp(cfg, storage, manager);
 
-  // Process-level error logs (prevent crash, log only).
   process.on('uncaughtException', (err) => {
     log.error({ err: err.message, stack: err.stack }, 'uncaughtException');
   });
@@ -63,12 +56,11 @@ async function main(argv: string[]) {
     log.error({ reason: String(reason) }, 'unhandledRejection');
   });
 
-  // Graceful shutdown.
   registerShutdown(app, storage, manager);
 
   try {
     await app.listen({ port: cfg.port, host: cfg.host });
-    log.info({ host: cfg.host, port: cfg.port }, 'tired-pc server listening');
+    log.info({ host: cfg.host, port: cfg.port }, 'tired-pc agent listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
       'Connect with: Authorization: Bearer <token>',
