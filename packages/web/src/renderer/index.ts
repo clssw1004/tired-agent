@@ -23,9 +23,11 @@ export type {
 
 import { RendererRegistry, defaultRegistry } from './registry.js';
 import { GenericPtyRenderer, genericPtyDetector } from './builtins/generic-pty.js';
+import { ClaudeRenderer, claudeDetector } from './builtins/claude.js';
 
 export { RendererRegistry, defaultRegistry } from './registry.js';
 export { GenericPtyRenderer, genericPtyDetector } from './builtins/generic-pty.js';
+export { ClaudeRenderer, claudeDetector } from './builtins/claude.js';
 
 let _initialized = false;
 
@@ -35,6 +37,11 @@ export function initRenderers(): void {
   _initialized = true;
 
   const reg = defaultRegistry();
+  // Claude first (priority 10) — wins for `claude` cmd and Claude TUI markers.
+  reg.register({
+    detector: claudeDetector(),
+    factory: () => new ClaudeRenderer(),
+  });
   reg.register({
     detector: genericPtyDetector(),
     factory: () => new GenericPtyRenderer(),

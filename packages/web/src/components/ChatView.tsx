@@ -17,6 +17,8 @@ interface Props {
   sessionId: string;
   sessionStatus: 'starting' | 'running' | 'exited' | string;
   sessionLabel: string;
+  sessionCmd: string;
+  sessionArgs: string[];
   onBack?: () => void;
 }
 
@@ -47,7 +49,15 @@ function formatTime(ts: number): string {
     : TIME_FORMATTER.format(ts) + ' ·';
 }
 
-export function ChatView({ serverRef, sessionId, sessionStatus, sessionLabel, onBack }: Props) {
+export function ChatView({
+  serverRef,
+  sessionId,
+  sessionStatus,
+  sessionLabel,
+  sessionCmd,
+  sessionArgs,
+  onBack,
+}: Props) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [connected, setConnected] = useState(false);
   const [transportError, setTransportError] = useState<string | null>(null);
@@ -204,14 +214,12 @@ export function ChatView({ serverRef, sessionId, sessionStatus, sessionLabel, on
         const replay = await transport.fetchOutput(serverRef, sessionId, 0);
         if (cancelled) return;
 
-        // Pick a renderer using cmd (set by TerminalPage consumer; here we
-        // fall back to a generic selection until cmd is known).
-        // Default for now: just create a new generic renderer.
+        // Pick a renderer using cmd first, then output preview as fallback.
         const preview = replay.chunks
           .slice(0, 4)
           .map((c) => DECODER.decode(base64ToBytes(c.data)))
           .join('');
-        rendererRef.current = selectRenderer('', [], preview);
+        rendererRef.current = selectRenderer(sessionCmd, sessionArgs, preview);
         rendererRef.current.reset();
 
         let seeded = '';
@@ -220,7 +228,7 @@ export function ChatView({ serverRef, sessionId, sessionStatus, sessionLabel, on
         }
         if (seeded) {
           const out = rendererRef.current.processChunk(seeded, {
-            session: { cmd: '', args: [] },
+            session: { cmd: sessionCmd, args: sessionArgs },
             streaming: false,
             segmentContent: [],
           });
@@ -248,14 +256,18 @@ export function ChatView({ serverRef, sessionId, sessionStatus, sessionLabel, on
     };
   }, [sessionId, serverRef.id]);
 
-  /** Refresh cmd/args from the session info passed in (updated by TerminalPage). */
+  /** Refresh renderer when sessionCmd / sessionArgs change (after initial
+   *  replay — TerminalPage fetches the Session asynchronously). */
   useEffect(() => {
-    // TerminalPage passes only label here, no cmd. We rely on the existing
-    // session ref captured in appendRawText. To keep detection accurate, the
-    // session cmd needs to come in via props — kept for the next iteration.
-    // For now we trigger a re-detect on label change only.
-    void sessionLabel;
-  }, [sessionLabel]);
+    if (!connected) return;
+    const selected = defaultRegistry().select(sessionCmd, sessionArgs, '');
+    if (selected.id !== rendererRef.current.id) {
+      rendererRef.current = selected;
+      rendererRef.current.reset();
+      force((n) => (n + 1) & 0xffff);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionCmd, sessionArgs.join('|'), connected]);
 
   // ── Status derivation ──────────────────────────────────────────────────
   const typing = lastChunkAtRef.current > 0 && Date.now() - lastChunkAtRef.current < TYPING_TIMEOUT_MS;

@@ -39,7 +39,7 @@ const ANSI_DCS_RE = new RegExp(
 );
 const ANSI_ESC_SHORT_RE = new RegExp(ESC_BYTE + '[\\x40-\\x5A\\\\\\-_]', 'g');
 const CSI_PARSE_RE = new RegExp(
-  ESC_BYTE + '\\[([\\d;]*)([A-HJKSTfsulh]?)',
+  ESC_BYTE + '\\[([\\d;]*)([A-HJKSTfghlmsu]?)',
   'g',
 );
 

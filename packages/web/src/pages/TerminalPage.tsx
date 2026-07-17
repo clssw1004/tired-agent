@@ -56,6 +56,8 @@ export function TerminalPage() {
       sessionId={sid!}
       sessionStatus={session?.status ?? 'starting'}
       sessionLabel={session?.label || session?.cmd || '…'}
+      sessionCmd={session?.cmd ?? ''}
+      sessionArgs={session?.args ?? []}
       onBack={() => navigate(`/servers/${server.id}`)}
     />
   );
