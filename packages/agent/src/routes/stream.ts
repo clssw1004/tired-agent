@@ -76,6 +76,7 @@ export function registerStreamRoute(
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'X-Accel-Buffering': 'no', // disable nginx buffering
         'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
       });
 
       // Flush headers immediately so EventSource can connect

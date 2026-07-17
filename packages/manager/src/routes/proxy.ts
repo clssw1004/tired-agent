@@ -215,6 +215,10 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
         'Connection': 'keep-alive',
         // Disable nginx-style buffering if behind a reverse proxy.
         'X-Accel-Buffering': 'no',
+        // CORS — Agent -> Manager proxy. The browser's EventSource reads this
+        // header. Without it the client-side fetch will fail on cross-origin
+        // pages (e.g. the vite dev server on :5173 → Manager on :8443).
+        'Access-Control-Allow-Origin': '*',
       });
 
       const reader = agentRes.body.getReader();
