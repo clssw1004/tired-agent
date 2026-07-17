@@ -1,25 +1,23 @@
 /**
  * Renderer Engine — public types.
  *
- * Each session's PTY output runs through exactly one AgentRenderer. Renderers
- * convert raw UTF-8 chunks (already decoded from the SSE wire by the
- * transport) into a stream of {@link StructuredContent} and a {@link DisplayMode}
- * hint. The UI layer is renderer-agnostic: it just plays back structured
- * content blocks.
+ * Each session's PTY output runs through exactly one AgentRenderer. With the
+ * xterm.js-based TerminalView (see docs/superpowers/specs/2026-07-18-...),
+ * renderers exist primarily as **detectors** — they decide which renderer id
+ * applies to a given command, and {@link TerminalView} does the actual work
+ * of displaying output. Renderers still expose a minimal API so future custom
+ * views (canvas dashboards, etc.) can plug in.
  *
- * See docs/superpowers/specs/2026-07-18-agent-renderer-design.md for the
- * design contract and the list of built-in renderers.
+ * Renderers do NOT parse ANSI — that's xterm.js's job. They just route bytes
+ * to whatever view is registered for their id.
  */
 
 import type { StructuredContent } from '@tired-pc/protocol';
 
 /**
  * How the current segment's content should be combined with the previous one.
- *
- *   chat         → Append content to the open assistant segment (default).
- *   replace-last → Replace the most-recent status/divider block (spinner).
- *   snapshot     → Replace the previous segment wholesale (htop refresh).
- *   dashboard    → Reserved; renders the segment as a panel, not a bubble.
+ * Kept for backwards-compat with the prior displayMode machinery; the new
+ * ChatContainer ignores this and uses append-by-default.
  */
 export type DisplayMode = 'chat' | 'replace-last' | 'snapshot' | 'dashboard';
 
@@ -42,16 +40,28 @@ export interface RenderContext {
 /**
  * Implemented per command/agent type. Plugins register a factory; the
  * registry caches one instance per (session, registry) pair.
+ *
+ * Under the xterm.js architecture, renderers are passive: they don't process
+ * bytes themselves. The TerminalView writes chunks directly to xterm. Future
+ * renderers (e.g. a custom canvas view) can override `processChunk` to do
+ * custom parsing.
  */
 export interface AgentRenderer {
   readonly id: string;
   readonly name: string;
 
-  /** Process a chunk of PTY-decoded text. Streaming=false in final pass. */
-  processChunk(chunk: string, ctx: RenderContext): RenderOutput;
+  /** Optional: process a chunk of PTY-decoded text. Default is no-op
+   *  (TerminalView writes the chunk to xterm itself). */
+  processChunk(chunk: string, ctx: RenderContext): RenderOutput | void;
 
-  /** User just sent a new input. Flush pending state, return residual. */
-  flush(): RenderOutput;
+  /** Optional: flush any residual state at end-of-segment. Default no-op. */
+  flush(): RenderOutput | void;
+
+  /** Optional: return all structured content the renderer has accumulated. */
+  getContents(): StructuredContent[];
+
+  /** Optional: indicate whether the underlying program is awaiting user input. */
+  awaitingInput(): boolean;
 
   /** Discard internal state. Used when switching renderers or on reset. */
   reset(): void;

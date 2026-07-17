@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Session } from '@tired-pc/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
-import { ChatView } from '../components/ChatView';
+import { ChatContainer } from '../components/ChatContainer';
 
 export function TerminalPage() {
   const { id, sid } = useParams<{ id: string; sid: string }>();
@@ -46,7 +46,7 @@ export function TerminalPage() {
   }
 
   return (
-    <ChatView
+    <ChatContainer
       serverRef={{
         id: server.id,
         name: server.name,
