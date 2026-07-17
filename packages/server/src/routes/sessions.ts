@@ -10,7 +10,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { SessionSpec } from '@tired-pc/protocol';
+import type { SessionSpec, SessionStatus } from '@tired-pc/protocol';
 import type { ServerConfig } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import type { Storage } from '../session/storage.js';
@@ -40,13 +40,29 @@ const OutputQuerySchema = z.object({
 export function registerSessionsRoutes(
   app: FastifyInstance,
   manager: SessionManager,
+  storage: Storage,
   cfg: Pick<ServerConfig, 'sseDebugLog'>,
 ): void {
-  // ── List ────────────────────────────────────────────────────────────────
-  app.get('/v1/sessions', async (req, reply) => {
-    const sessions = manager.list();
+  // ── List (optional ?status=running filter) ───────────────────
+  app.get<{ Querystring: { status?: string } }>('/v1/sessions', async (req, reply) => {
+    const filter = req.query.status as SessionStatus | undefined;
+    let sessions = manager.list();
+    if (filter) sessions = sessions.filter((s) => s.status === filter);
     return reply.code(200).send(sessions);
   });
+
+  // ── Bulk prune: drop DB rows + log files whose sessions are stale ───
+  //   DELETE /v1/sessions/prune?olderThanHours=24
+  app.delete<{ Querystring: { olderThanHours?: string } }>(
+    '/v1/sessions/prune',
+    async (req, reply) => {
+      const hours = Math.max(0, Number(req.query.olderThanHours ?? 24));
+      const removed = storage.pruneOlderThan(hours * 3600 * 1000);
+      manager.pruneStale();
+      log.info({ olderThanHours: hours, removed }, 'pruned old sessions');
+      return reply.code(200).send({ removed });
+    },
+  );
 
   // ── Create ──────────────────────────────────────────────────────────────
   app.post('/v1/sessions', async (req, reply) => {
@@ -80,7 +96,7 @@ export function registerSessionsRoutes(
     return reply.code(200).send(session);
   });
 
-  // ── Kill ───────────────────────────────────────────────────────────────
+  // ── Kill (running) or hard-delete (already exited) ───────────────────
   app.delete<{ Params: { id: string } }>('/v1/sessions/:id', async (req, reply) => {
     const { id } = req.params;
     const session = manager.get(id);
@@ -90,6 +106,12 @@ export function registerSessionsRoutes(
       });
     }
     try {
+      if (session.status === 'exited') {
+        storage.delete(id);
+        manager.pruneStale();
+        log.info({ sessionId: id }, 'DELETE /v1/sessions/:id → deleted (exited)');
+        return reply.code(204).send();
+      }
       await manager.kill(id);
       log.info({ sessionId: id }, 'DELETE /v1/sessions/:id → killed');
       return reply.code(204).send();

@@ -84,12 +84,16 @@ export class SessionManager {
         };
         this.storage.update(updated);
         const rec = this.storage.get(id)!;
+        // Update liveSession BEFORE broadcasting so subscribers receive the
+        // terminal state with status='exited' (otherwise the previously-set
+        // 'running' record is what gets sent out — phantom-running session).
         liveSession.record = rec;
         this.broadcast(liveSession, { type: 'state', record: rec });
         log.info({ sessionId: id, exitCode: finalCode }, 'session exited');
-        // Keep the entry in `live` so clients can still read output after exit.
-        // Cleanup is client-driven (client stops reading and the entry is left
-        // for GC — a new create() won't reuse the same id).
+        // The live entry is kept briefly so SSE subscribers can still drain
+        // final output / receive the state event. A periodic timer
+        // (`cleanupTimer`) removes it once nobody is listening and at least
+        // CLEANUP_GRACE_MS have elapsed.
       });
 
       // Update pid (available after spawn)
@@ -156,6 +160,13 @@ export class SessionManager {
     const s = live.get(id);
     if (!s) throw new Error(`Session ${id} not found`);
     s.subscribers.add(onEvent);
+    // If the session is already exited, replay the final state on a microtask
+    // so the client always learns about the exit even when they connect late.
+    if (s.record.status === 'exited') {
+      queueMicrotask(() => {
+        try { onEvent({ type: 'state', record: s.record }); } catch { /* ignore */ }
+      });
+    }
     return () => { s.subscribers.delete(onEvent); };
   }
 
@@ -179,6 +190,70 @@ export class SessionManager {
         log.error({ err, sessionId: s.record.id }, 'subscriber callback error');
       }
     }
+  }
+
+  /**
+   * Remove exit-elapsed sessions from the in-memory `live` Map once nobody
+   * is listening. Started on construction; cleared by `stopCleanupTimer()`.
+   *
+   * Without this, `live` grows unbounded: every session ever created stays
+   * resident, and after a restart any session in the DB whose `live` entry
+   * was lost appears as 'running' to clients forever.
+   */
+  private cleanupTimer: NodeJS.Timeout | null = null;
+  private static readonly CLEANUP_INTERVAL_MS = 60_000;
+  private static readonly CLEANUP_GRACE_MS = 60_000;
+
+  startCleanupTimer(): void {
+    if (this.cleanupTimer) return;
+    this.cleanupTimer = setInterval(() => this.pruneStale(), SessionManager.CLEANUP_INTERVAL_MS);
+  }
+
+  stopCleanupTimer(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
+
+  /** Periodic sweep: drop live entries whose PTY has been gone a while. */
+  pruneStale(): number {
+    const now = Date.now();
+    const grace = SessionManager.CLEANUP_GRACE_MS;
+    let removed = 0;
+    for (const [id, s] of live) {
+      if (s.record.status === 'exited'
+          && s.subscribers.size === 0
+          && (s.record.exitedAt ?? 0) + grace < now) {
+        live.delete(id);
+        removed++;
+        log.debug({ sessionId: id }, 'pruned live entry');
+      }
+    }
+    return removed;
+  }
+
+  /**
+   * Reconcile the DB against the live Map. Call after server startup — any
+   * session whose PTY is no longer alive (because we restarted) is marked
+   * 'exited' with a synthetic exit code.
+   */
+  reconcileWithStorage(): number {
+    let touched = 0;
+    const stored = this.storage.list();
+    for (const rec of stored) {
+      if (!live.has(rec.id) && rec.status !== 'exited') {
+        this.storage.update({
+          id: rec.id,
+          status: 'exited',
+          exitCode: -1,
+          exitedAt: Date.now(),
+        });
+        touched++;
+        log.warn({ sessionId: rec.id }, 'orphaned session marked exited on startup');
+      }
+    }
+    return touched;
   }
 }
 

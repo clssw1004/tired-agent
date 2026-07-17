@@ -57,9 +57,23 @@ export interface Transport {
 
   /**
    * Kill a session (SIGTERM, then SIGKILL after a grace period).
-   * After this returns, the session's status will transition to 'exited'.
+   * If the session is already exited, the row + its append-only log are
+   * removed from storage instead.
    */
   killSession(ref: ServerRef, id: string): Promise<void>;
+
+  /**
+   * Permanently delete an already-exited session (row + log file).
+   * For running sessions the server will return an error.
+   */
+  deleteSession(ref: ServerRef, id: string): Promise<void>;
+
+  /**
+   * Bulk-delete all sessions whose last activity is older than
+   * `olderThanHours` hours. Returns the count removed so the UI can
+   * surface a "X zombies cleaned" toast.
+   */
+  pruneSessions(ref: ServerRef, olderThanHours?: number): Promise<{ removed: number }>;
 
   /**
    * Resize the underlying PTY. Clients should call this when the

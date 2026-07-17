@@ -220,6 +220,28 @@ export class HttpSseTransport implements Transport {
     await checkOk(res, 'killSession');
   }
 
+  async deleteSession(ref: ServerRef, id: string): Promise<void> {
+    // Same endpoint as killSession — server distinguishes exited vs running
+    // and routes to hard-delete vs SIGKILL respectively.
+    const res = await this.fetchImpl(
+      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: authHeaders(ref) },
+    );
+    await checkOk(res, 'deleteSession');
+  }
+
+  async pruneSessions(
+    ref: ServerRef,
+    olderThanHours = 24,
+  ): Promise<{ removed: number }> {
+    const res = await this.fetchImpl(
+      `${ensureBaseUrl(ref)}/v1/sessions/prune?olderThanHours=${olderThanHours}`,
+      { method: 'DELETE', headers: authHeaders(ref) },
+    );
+    await checkOk(res, 'pruneSessions');
+    return (await res.json()) as { removed: number };
+  }
+
   async resizeSession(
     ref: ServerRef,
     id: string,

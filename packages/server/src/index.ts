@@ -76,6 +76,14 @@ async function main(argv: string[]) {
   // ── Session manager ────────────────────────────────────────────────────
   const manager = new SessionManager(storage);
 
+  // Reconcile any orphan "running" rows left over from a previous run
+  // (their PTYs are gone — the live Map starts empty).
+  const reconciled = manager.reconcileWithStorage();
+  if (reconciled > 0) {
+    log.warn({ reconciled }, 'marking orphaned sessions exited on startup');
+  }
+  manager.startCleanupTimer();
+
   // ── Fastify ────────────────────────────────────────────────────────────
   const app = Fastify({
     logger: false, // we use our own pino logger
@@ -112,7 +120,7 @@ async function main(argv: string[]) {
   registerAuth(app, cfg.token);
 
   // ── Routes ─────────────────────────────────────────────────────────────
-  registerSessionsRoutes(app, manager, cfg);
+  registerSessionsRoutes(app, manager, storage, cfg);
   registerStreamRoute(app, manager, cfg);
 
   // Health check (no auth required)
@@ -157,6 +165,7 @@ async function main(argv: string[]) {
   // ── Graceful shutdown ──────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutdown signal received');
+    manager.stopCleanupTimer();
     await app.close();
     await storage.close();
     log.info('server stopped');
