@@ -200,15 +200,19 @@ export class HttpSseTransport implements Transport {
     agentId?: string,
   ): string {
     const base = ensureBaseUrl(ref);
-    const agent = agentId ? `/v1/agents/${encodeURIComponent(agentId)}` : '';
-    return `${base}${agent}/v1/sessions/${encodeURIComponent(sessionId)}${suffix}`;
+    if (agentId) {
+      return `${base}/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}${suffix}`;
+    }
+    return `${base}/v1/sessions/${encodeURIComponent(sessionId)}${suffix}`;
   }
 
   /** Build a URL for agent-managed endpoints (sessions list, create). */
   private agentsUrl(ref: ServerRef, agentId?: string): string {
     const base = ensureBaseUrl(ref);
-    const agent = agentId ? `/v1/agents/${encodeURIComponent(agentId)}` : '';
-    return `${base}${agent}/v1/sessions`;
+    if (agentId) {
+      return `${base}/v1/agents/${encodeURIComponent(agentId)}/sessions`;
+    }
+    return `${base}/v1/sessions`;
   }
 
   async listSessions(ref: ServerRef, agentId?: string): Promise<Session[]> {
