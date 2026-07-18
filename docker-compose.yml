@@ -1,8 +1,6 @@
 services:
   manager:
-    build:
-      context: .
-      dockerfile: packages/manager/Dockerfile
+    image: clssw1004/tired-manager:latest
     ports:
       - "${MANAGER_PORT:-8443}:8443"
     environment:
