@@ -29,8 +29,6 @@ export interface ManagerConfig {
   webDistPath: string;
   /** CORS origin value for the Fastify cors plugin. */
   corsOrigin: string;
-  /** Shared secret for agent auto-registration. Empty string = disabled. */
-  registerSecret: string;
 }
 
 function parseInt10(value: string | undefined, fallback: number): number {
@@ -85,7 +83,6 @@ export function loadConfig(argv: string[]): ManagerConfig {
     webDistPath:
       cli.webDistPath ?? resolve(env.CLSSW_MANAGER_WEB_DIST ?? resolve(PACKAGE_ROOT, '../web/dist')),
     corsOrigin: cli.corsOrigin ?? env.CORS_ORIGIN ?? '*',
-    registerSecret: env.CLSSW_MANAGER_REGISTER_SECRET ?? '',
   };
 }
 

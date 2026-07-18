@@ -441,3 +441,169 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .chat-status { padding: 5px 12px; }
   .chat-title-host { display: none; }
 }
+
+/* ── Top nav (visible only when logged in) ─────────────────────────── */
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.app-nav-link {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.app-nav-link:hover { color: var(--text); background: rgba(255,255,255,0.04); text-decoration: none; }
+.app-nav-link.active { color: var(--text); background: var(--bg-input); }
+.app-nav-spacer { flex: 1; }
+.app-nav-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 0 8px;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Onboarding page ────────────────────────────────────────────────── */
+.onboarding-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  width: fit-content;
+}
+.onboarding-tab {
+  background: transparent;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.onboarding-tab:hover { color: var(--text); }
+.onboarding-tab.active {
+  background: var(--bg-input);
+  color: var(--text);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+}
+
+.onboarding-blurb {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.onboarding-disabled { margin-top: 12px; }
+
+.onboarding-form { margin-bottom: 20px; }
+
+.onboarding-step {
+  display: flex;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.onboarding-step:first-of-type { border-top: none; padding-top: 0; }
+.onboarding-step-num {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.onboarding-step-body { flex: 1; min-width: 0; }
+.onboarding-step-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.onboarding-step-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.onboarding-foot {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.onboarding-ticket-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 8px 0 12px;
+  line-height: 1.7;
+}
+.onboarding-ticket-meta strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Command block ─────────────────────────────────────────────────── */
+.command-block { margin-top: 14px; }
+.command-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.command-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.command-pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.copy-btn {
+  flex-shrink: 0;
+  background: var(--bg-elev);
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.copy-btn:hover { color: var(--text); background: #20203a; }
+.copy-btn.copied {
+  color: var(--ok);
+  background: rgba(81,207,102,0.10);
+}

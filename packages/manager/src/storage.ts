@@ -117,10 +117,23 @@ export function createStorage(dataDir: string): Storage {
 
   async function init() {
     await mkdir(dataDir, { recursive: true });
-    db(); // touch schema
+    const handle = db(); // touch schema
 
-    // Migration: add agent_key column for databases from v0.1
-    try { _db.exec(`ALTER TABLE manager_agents ADD COLUMN agent_key TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
+    // Migration: add agent_key column for databases from v0.1.
+    // The bare `try { ... } catch` is intentional — running ALTER on a
+    // table that already has the column throws "duplicate column name",
+    // which is the happy path for an idempotent migration.
+    const hasAgentKey = handle
+      .prepare("SELECT 1 FROM pragma_table_info('manager_agents') WHERE name = 'agent_key'")
+      .get();
+    if (!hasAgentKey) {
+      handle.exec(
+        `ALTER TABLE manager_agents ADD COLUMN agent_key TEXT NOT NULL DEFAULT ''`,
+      );
+      handle.exec(
+        `CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key)`,
+      );
+    }
   }
 
   // ── agents ──────────────────────────────────────────────────────────────

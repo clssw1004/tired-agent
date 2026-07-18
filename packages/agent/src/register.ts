@@ -2,24 +2,28 @@
  * Agent auto-registration with a Manager.
  *
  * Flow:
- *   Admin generates base64(json({managerUrl, agentName, registerSecret})).
- *   Agent startup decodes the string, POSTs to the Manager's registration
- *   endpoint, receives an agent-specific token, and persists it locally
- *   so subsequent restarts skip registration.
+ *   1. Admin clicks "Generate registration command" in the onboarding UI.
+ *   2. Manager issues a one-shot ticket (5 min TTL).
+ *   3. UI builds base64(json({managerUrl, agentName, ticket})) and shows it.
+ *   4. Agent startup decodes the string, POSTs to the Manager's
+ *      registration endpoint with `Authorization: Bearer <ticket>`.
+ *   5. Manager validates the ticket, registers the agent (or updates
+ *      the existing row by agentKey), returns an agent-specific token.
+ *   6. Agent persists the token + agentKey locally so subsequent restarts
+ *      skip registration.
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import type { ServerConfig } from './config.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface RegisterPayload {
   managerUrl: string;
-  agentName: string;
-  registerSecret: string;
 }
 
 /**
@@ -70,27 +74,22 @@ export async function saveCredentials(dataDir: string, creds: AgentCredentials):
 /**
  * Register this agent with the Manager.
  *
- * POSTs the agent's name and self-reported URL to the Manager. Returns
- * the assigned agent id and API token on success.
+ * POSTs the agent's name, self-reported URL, and (on re-registration) the
+ * persistent agentKey for dedup. Returns the assigned agent id and API token.
  */
 export async function registerWithManager(
   managerUrl: string,
   name: string,
-  registerSecret: string,
   agentBaseUrl: string,
   agentKey?: string,
 ): Promise<{ id: string; token: string }> {
-  // Strip trailing slash from manager URL.
   const base = managerUrl.replace(/\/+$/, '');
   const url = `${base}/v1/manager/agents/register`;
 
   const body: Record<string, string> = {
     name,
     baseUrl: agentBaseUrl,
-    registerToken: registerSecret,
   };
-  // Pass the agentKey so the manager can update the existing entry
-  // instead of creating a duplicate (re-registration / dedup).
   if (agentKey) body.agentKey = agentKey;
 
   const res = await fetch(url, {
@@ -122,18 +121,18 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
   // 2. If a register string is present, always re-register (the manager
   //    may need an updated URL or token).  Pass the agentKey for dedup.
   if (cfg.registerString) {
-    // Either use the saved agentKey or generate a fresh one.
     const agentKey = saved?.agentKey ?? randomUUID();
     const payload = decodeRegisterString(cfg.registerString);
-    const agentBaseUrl = `http://${cfg.host}:${cfg.port}`;
+    // When host is 0.0.0.0 (listen-all), resolve the first non-loopback
+    // IPv4 so the manager can actually reach us.
+    const advertiseHost = cfg.host === '0.0.0.0' ? detectLanIp() : cfg.host;
+    const agentBaseUrl = `http://${advertiseHost}:${cfg.port}`;
     const creds = await registerWithManager(
       payload.managerUrl,
-      payload.agentName,
-      payload.registerSecret,
+      cfg.name,
       agentBaseUrl,
       agentKey,
     );
-    // Persist (possibly updated) credentials — keep the same agentKey.
     await saveCredentials(cfg.dataDir, { agentKey, id: creds.id, token: creds.token });
     return { agentKey, id: creds.id, token: creds.token };
   }
@@ -142,4 +141,29 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
   if (saved) return saved;
 
   return null;
+}
+
+/**
+ * Detect the first non-loopback IPv4 address of this machine.
+ * Used when the agent binds to `0.0.0.0` and needs to tell the
+ * manager a reachable address.
+ */
+export function detectLanIp(): string {
+  const interfaces = networkInterfaces();
+  const candidates: string[] = [];
+  for (const iface of Object.values(interfaces)) {
+    if (!iface) continue;
+    for (const addr of iface) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        candidates.push(addr.address);
+      }
+    }
+  }
+  // Prefer common private ranges.
+  for (const ip of candidates) {
+    if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+      return ip;
+    }
+  }
+  return candidates[0] ?? '127.0.0.1';
 }

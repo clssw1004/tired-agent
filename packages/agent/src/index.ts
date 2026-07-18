@@ -10,6 +10,9 @@ import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
+import { randomBytes } from 'node:crypto';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 
 // Load .env when invoked directly (e.g. `node dist/index.js`).
 // When invoked via cli.ts, dotenv is already loaded — this is harmless.
@@ -33,7 +36,11 @@ export async function main(cfg: ServerConfig) {
   // Initialise the logger from config (file + rotation in daemon mode).
   initLogger({ logDir: cfg.logDir, level: cfg.logLevel });
 
-  validateConfig(cfg);
+  // First-pass validation: only fail on structural issues (port range).
+  // Token length is re-checked after registration / credential load.
+  if (cfg.port < 1 || cfg.port > 65535) {
+    throw new Error(`Refusing to start: invalid port ${cfg.port}`);
+  }
 
   // ── Auto-register with Manager if configured ───────────────────
   if (cfg.registerString) {
@@ -59,6 +66,19 @@ export async function main(cfg: ServerConfig) {
     } catch {
       // Ignore — will use configured token.
     }
+  }
+
+  // Re-validate now that the token may have been populated.
+  // If still missing (no register, no saved creds, no --token), auto-
+  // generate one and persist it to ~/.tiredagent/.env so subsequent
+  // restarts are stable.
+  if (!cfg.token || cfg.token.length < 8) {
+    const generated = randomBytes(16).toString('hex');
+    log.warn('No --token / CLSSW_TOKEN provided; auto-generating one.');
+    log.warn({ tokenHint: generated.slice(0, 4) + '****' },
+      'Save this token — printed once. Set CLSSW_TOKEN=<value> in ~/.tiredagent/.env to pin it.');
+    await persistAutoToken(cfg.dataDir, generated);
+    cfg.token = generated;
   }
 
   const storage = createStorage({
@@ -112,9 +132,37 @@ export async function main(cfg: ServerConfig) {
 }
 
 // Direct invocation: parse argv and start.
-// When invoked via cli.ts the commander entry bypasses this.
-const _cfg = loadConfig(process.argv);
-main(_cfg).catch((err) => {
-  log.fatal({ err }, 'unhandled startup error');
-  process.exit(1);
-});
+// Guard: only run when invoked directly (not when imported by cli.ts).
+const _isMain = !process.argv[1]?.includes('cli');
+if (_isMain) {
+  const _cfg = loadConfig(process.argv);
+  main(_cfg).catch((err) => {
+    log.fatal({ err }, 'unhandled startup error');
+    process.exit(1);
+  });
+}
+
+/**
+ * Persist an auto-generated token to ~/.tiredagent/.env so subsequent
+ * restarts are stable. Adds or replaces the `CLSSW_TOKEN=…` line.
+ */
+async function persistAutoToken(dataDir: string, token: string): Promise<void> {
+  const envPath = join(dataDir, '.env');
+  const line = `CLSSW_TOKEN=${token}\n`;
+  try {
+    await mkdir(dataDir, { recursive: true });
+    let existing = '';
+    if (existsSync(envPath)) {
+      existing = await readFile(envPath, 'utf-8');
+    }
+    // Replace existing CLSSW_TOKEN line, or append.
+    if (/^CLSSW_TOKEN=.*$/m.test(existing)) {
+      existing = existing.replace(/^CLSSW_TOKEN=.*$/m, `CLSSW_TOKEN=${token}`);
+      await writeFile(envPath, existing, 'utf-8');
+    } else {
+      await appendFile(envPath, line, 'utf-8');
+    }
+  } catch (err) {
+    log.warn({ err }, 'failed to persist auto-generated token');
+  }
+}

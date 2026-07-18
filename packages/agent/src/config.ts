@@ -4,7 +4,7 @@
  */
 
 import { resolve, join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 
 /** Default data directory: ~/.tiredagent */
 const DEFAULT_DATA_DIR = join(homedir(), '.tiredagent');
@@ -92,14 +92,19 @@ export function loadConfig(argv: string[]): ServerConfig {
     logLevel: env.CLSSW_LOG_LEVEL ?? 'info',
     sseFormat: env['CLSSW_SSE_FORMAT'] === 'hex' ? 'hex' : 'base64',
     sseDebugLog: env['CLSSW_DEBUG_SSE'] === '1',
-    name: cli.name ?? env.CLSSW_AGENT_NAME ?? '',
+    name: cli.name || env.CLSSW_AGENT_NAME || hostname(),
     registerString,
   };
 }
 
 /** Throw a clear error if the configuration is unusable. */
 export function validateConfig(cfg: ServerConfig): void {
-  if (!cfg.token || cfg.token.length < 8) {
+  // When --register is set, the agent will receive a manager-issued token
+  // during startup (see getOrRegisterCredentials). Defer the token check
+  // until after registration so the user can run the auto-register
+  // one-liner without supplying --token manually.
+  const tokenWillBeSet = !!cfg.registerString;
+  if (!tokenWillBeSet && (!cfg.token || cfg.token.length < 8)) {
     throw new Error(
       'Refusing to start: --token (or CLSSW_TOKEN) must be at least 8 chars. ' +
         'Generate one with `openssl rand -hex 16`.',
