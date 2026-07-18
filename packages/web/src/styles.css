@@ -195,9 +195,30 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .dot-exited { background: var(--text-dim); }
 
 .empty { text-align: center; padding: 80px 20px; color: var(--text-dim); }
+.empty-large { padding: 48px 24px 56px; }
+.empty-illustration {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 20px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(51,154,240,0.18), rgba(132,94,247,0.18));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+.empty-glyph { font-size: 44px; line-height: 1; }
 .empty-icon { font-size: 48px; margin-bottom: 16px; }
-.empty-text { color: var(--text); font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-.empty-hint { font-size: 14px; line-height: 1.6; max-width: 400px; margin: 0 auto; }
+.empty-text { color: var(--text); font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.empty-hint { font-size: 14px; line-height: 1.6; max-width: 400px; margin: 0 auto 20px; }
+.empty-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.empty-actions > button { min-width: 140px; }
 
 .error-banner {
   background: #2a1010;
