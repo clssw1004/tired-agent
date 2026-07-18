@@ -26,16 +26,21 @@ npm run build:manager
 npm run build:web
 
 # Dev servers (run in separate terminals)
-npm run dev:agent   -- --port 8444 --token dev-token-12345678
-npm run dev:manager -- --port 8443 --token admin-token-12345678
-npm run dev:web     # Vite dev server on :5173, proxies /v1 to :8443
+npm run dev:agent        # port 8444, auto-generates token if missing
+npm run dev:manager -- --token admin-token-12345678
+npm run dev:web          # Vite dev server on :5173, proxies /v1 to :8443
+
+# Agent CLI
+node packages/agent/dist/cli.js start --register "<base64>"   # auto-register + start
+node packages/agent/dist/cli.js status                         # check status
+node packages/agent/dist/cli.js stop                           # stop daemon
+node packages/agent/dist/cli.js restart                        # restart daemon
 
 # Typecheck
 npm run typecheck
 
 # Docker
 docker build -f packages/manager/Dockerfile .          # manager image
-docker build -f packages/agent/Dockerfile .             # agent image (if exists)
 docker compose up -d                                    # full stack
 
 # Package publishing
@@ -148,12 +153,24 @@ All config via CLI args or env vars. Agent loads `.env` from `~/.tiredagent/.env
 
 ### Agent auto-registration
 
-Agent can self-register with a Manager via base64-encoded payload:
-```
-echo -n '{"managerUrl":"http://manager:8443","agentName":"my-pc","registerSecret":"..."}' | base64 -w0
-tired-agent start --register "$REG"
-```
-Persists `agentKey` for dedup on re-registration. Manager stores the agent's token and base URL for proxying.
+The admin generates a registration command from the manager UI (`/onboarding`):
+1. Admin clicks "Generate registration command" on the onboarding page.
+2. UI builds `base64.json({managerUrl})` and shows the install + start one-liner.
+3. Agent decodes the payload and POSTs `{name, baseUrl, agentKey}` to `POST /v1/manager/agents/register` (public endpoint, no auth — security is the network perimeter).
+4. Manager registers or updates the agent by agentKey, returns `{id, token}`.
+
+Agent defaults:
+- **Name**: `os.hostname()`
+- **Token**: auto-generated on first start, persisted to `~/.tiredagent/.env`
+- **Host**: `0.0.0.0` when `--register` set (LAN IP auto-detected for registration)
+- **agentKey**: persisted in `~/.tiredagent/.agent-credentials`, reused across restarts for dedup
+
+Agent CLI subcommands:
+- `start` — daemon (supports `--register`, `--port`, `--name`, etc.)
+- `status` — show registration state, daemon health
+- `stop` — kill daemon by PID file
+- `restart` — stop + re-spawn daemon
+- `register <base64>` — one-shot register then exit
 
 ## Windows notes
 

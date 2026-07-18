@@ -29,7 +29,9 @@ export async function createApp(
   registerStreamRoute(app, manager, storage, cfg);
 
   // Health check (no auth required)
-  app.get('/health', async (_req, reply) => reply.code(200).send({ status: 'ok', ts: Date.now() }));
+  app.get('/health', async (_req, reply) =>
+    reply.code(200).send({ status: 'ok', name: cfg.name, port: cfg.port, ts: Date.now() }),
+  );
 
   // Global error handler — never crash on a single request
   app.setErrorHandler((err, req, reply) => {

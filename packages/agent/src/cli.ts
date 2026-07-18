@@ -17,8 +17,8 @@ import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 
 // Load .env from package root (bundled defaults, lowest priority).
@@ -56,7 +56,7 @@ async function run() {
     .option('-H, --host <address>', `Host to bind to (env: HOST, default 127.0.0.1; or 0.0.0.0 when --register is set)`, process.env['HOST'] ?? '')
     .option('-t, --token <token>', 'Bearer token for incoming auth (env: CLSSW_TOKEN)')
     .option('-d, --data-dir <path>', `Data directory (env: CLSSW_DATA, default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
-    .option('-n, --name <name>', 'Agent name for Manager registration (env: CLSSW_AGENT_NAME)', process.env['CLSSW_AGENT_NAME'] ?? '')
+    .option('-n, --name <name>', 'Agent name for Manager registration (env: CLSSW_AGENT_NAME, default: hostname)', process.env['CLSSW_AGENT_NAME'] ?? '')
     .option('--register <string>', 'Base64-encoded Manager registration string (env: CLSSW_REGISTER)', process.env['CLSSW_REGISTER'] ?? '')
     .option('--log-level <level>', `Log level (env: CLSSW_LOG_LEVEL, default info)`, process.env['CLSSW_LOG_LEVEL'] ?? 'info')
     .option('--sse-format <format>', 'SSE data format: base64 | hex', process.env['CLSSW_SSE_FORMAT'] ?? 'base64')
@@ -74,9 +74,17 @@ async function run() {
         logLevel: opts.logLevel,
         sseFormat: opts.sseFormat === 'hex' ? 'hex' : 'base64',
         sseDebugLog: !!opts.sseDebug,
-        name: opts.name,
+        name: opts.name || hostname(),
         registerString,
       };
+      // Write PID file so `stop` / `restart` can find the daemon.
+      const pidFile = join(opts.dataDir, 'agent.pid');
+      try {
+        writeFileSync(pidFile, String(process.pid), 'utf-8');
+      } catch (e) {
+        const _ = e;
+        // Non-fatal — status command will say "no" when unreachable.
+      }
       await main(cfg);
     });
 
@@ -88,18 +96,130 @@ async function run() {
       const { decodeRegisterString, registerWithManager } = await import('./register.js');
 
       const payload = decodeRegisterString(base64);
-      // Derive agent URL from sensible defaults.
-      const host = process.env['HOST'] ?? '127.0.0.1';
+      const rawHost = process.env['HOST'] ?? '127.0.0.1';
+      const { detectLanIp } = await import('./register.js');
+      const host = rawHost === '0.0.0.0' ? detectLanIp() : rawHost;
       const port = process.env['PORT'] ?? '8444';
       const agentBaseUrl = `http://${host}:${port}`;
 
       const creds = await registerWithManager(
         payload.managerUrl,
-        payload.agentName,
-        payload.registerSecret,
+        hostname(),
         agentBaseUrl,
       );
       console.log(JSON.stringify(creds, null, 2));
+    });
+
+  // ── stop ──────────────────────────────────────────────────────
+  program
+    .command('stop')
+    .description('Stop the running agent daemon')
+    .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (opts) => {
+      const pidFile = join(opts.dataDir, 'agent.pid');
+      let pid: number;
+      try {
+        pid = Number(readFileSync(pidFile, 'utf-8').trim());
+      } catch {
+        console.error('Agent does not appear to be running (no PID file)');
+        console.log('If the agent is running, kill it manually and remove the .env HOST=127.0.0.1 restriction.');
+        process.exit(1);
+      }
+      try {
+        // Windows: taskkill. Unix: SIGTERM.
+        const cmd = process.platform === 'win32'
+          ? `taskkill /F /PID ${pid}`
+          : `kill ${pid}`;
+        const { execSync } = await import('node:child_process');
+        execSync(cmd, { stdio: 'ignore' });
+        unlinkSync(pidFile);
+        console.log(`Agent (PID ${pid}) stopped.`);
+      } catch {
+        console.error(`Failed to stop agent (PID ${pid}). Try: taskkill /F /PID ${pid}`);
+        process.exit(1);
+      }
+    });
+
+  // ── restart ───────────────────────────────────────────────────
+  program
+    .command('restart')
+    .description('Restart the running agent daemon')
+    .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (opts) => {
+      const pidFile = join(opts.dataDir, 'agent.pid');
+      let pid: number | null = null;
+      try {
+        pid = Number(readFileSync(pidFile, 'utf-8').trim());
+      } catch { /* not running */ }
+
+      if (pid) {
+        console.log(`Stopping agent (PID ${pid})…`);
+        const cmd = process.platform === 'win32' ? `taskkill /F /PID ${pid}` : `kill ${pid}`;
+        const { execSync } = await import('node:child_process');
+        try { execSync(cmd, { stdio: 'ignore' }); } catch { /* ok */ }
+        try { unlinkSync(pidFile); } catch { /* ok */ }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+
+      // Re-launch with `cmd /c start /B` on Windows (detached), or
+      // `nohup` on Unix.  Re-use this same script + args + `start`.
+      const args = process.argv
+        .slice(2)
+        .filter((a) => a !== 'restart')
+        .join(' ');
+      const { execSync } = await import('node:child_process');
+      const nodeBin = process.execPath;
+      const script = process.argv[1];
+      const launchCmd =
+        process.platform === 'win32'
+          ? `start /B "" "${nodeBin}" "${script}" ${args} start`
+          : `nohup "${nodeBin}" "${script}" ${args} start >/dev/null 2>&1 &`;
+      execSync(launchCmd, { stdio: 'ignore' });
+      console.log('Agent restarted.');
+      process.exit(0);
+    });
+
+  // ── status ────────────────────────────────────────────────────
+  program
+    .command('status')
+    .description('Show agent status — running, registered, config')
+    .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (opts) => {
+      const { loadCredentials } = await import('./register.js');
+      const creds = await loadCredentials(opts.dataDir);
+
+      console.log(`Data dir:   ${opts.dataDir}`);
+      console.log(`Registered: ${creds ? 'yes' : 'no'}`);
+      if (creds) {
+        console.log(`  Agent ID:  ${creds.id}`);
+        console.log(`  Token:     ${creds.token.slice(0, 4)}****`);
+        console.log(`  Agent key: ${creds.agentKey}`);
+      }
+
+      // Check if daemon is listening (configurable port from .env or default).
+      const envPath = join(opts.dataDir, '.env');
+      let agentPort = '8444';
+      let agentHost = '127.0.0.1';
+      try {
+        const dotenv = readFileSync(envPath, 'utf-8');
+        const portMatch = dotenv.match(/^PORT=(.+)$/m);
+        if (portMatch?.[1]) agentPort = portMatch[1].trim();
+        const hostMatch = dotenv.match(/^HOST=(.+)$/m);
+        if (hostMatch?.[1]) agentHost = hostMatch[1].trim();
+      } catch { /* .env doesn't exist yet */ }
+
+      const healthUrl = `http://${agentHost}:${agentPort}/health`;
+      try {
+        const res = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) });
+        const json = (await res.json()) as Record<string, unknown>;
+        const ts = Number(json.ts ?? 0);
+        const uptime = ts ? Math.floor((Date.now() - ts) / 1000) : 0;
+        console.log(`Running:    yes — ${healthUrl}`);
+        console.log(`  Uptime:   ${uptime}s`);
+        if (json.name) console.log(`  Name:    ${json.name}`);
+      } catch {
+        console.log(`Running:    no`);
+      }
     });
 
   await program.parseAsync(process.argv);
@@ -109,9 +229,3 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
-// ─── Helper: env var with fallback ──────────────────────────────
-
-function envString(key: string, fallback: string): string {
-  return process.env[key] ?? fallback;
-}
