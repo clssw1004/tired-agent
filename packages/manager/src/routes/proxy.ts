@@ -26,9 +26,13 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Storage } from '../storage.js';
 import { log } from '../util/log.js';
 
-/** Build the upstream URL for a non-stream proxy call. */
+/** Build the upstream URL for a non-stream proxy call.
+ *  Appends ?access_token= or &access_token= depending on whether the
+ *  upstream path already carries query parameters. */
 function buildAgentUrl(base: string, path: string, token: string): string {
-  return `${base.replace(/\/+$/, '')}${path}?access_token=${encodeURIComponent(token)}`;
+  const clean = base.replace(/\/+$/, '');
+  const sep = path.includes('?') ? '&' : '?';
+  return `${clean}${path}${sep}access_token=${encodeURIComponent(token)}`;
 }
 
 /**
@@ -211,6 +215,10 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
         'Connection': 'keep-alive',
         // Disable nginx-style buffering if behind a reverse proxy.
         'X-Accel-Buffering': 'no',
+        // CORS — Agent -> Manager proxy. The browser's EventSource reads this
+        // header. Without it the client-side fetch will fail on cross-origin
+        // pages (e.g. the vite dev server on :5173 → Manager on :8443).
+        'Access-Control-Allow-Origin': '*',
       });
 
       const reader = agentRes.body.getReader();

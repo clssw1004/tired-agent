@@ -31,7 +31,7 @@ export function TerminalPage() {
   if (!server) {
     return (
       <div className="page">
-        <div className="empty">Server not found</div>
+        <div className="empty">Agent not found</div>
       </div>
     );
   }

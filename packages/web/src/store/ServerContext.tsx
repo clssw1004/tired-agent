@@ -24,6 +24,8 @@ import { useAuth } from './AuthContext';
  */
 export interface AgentServerRef extends ServerRef {
   agentId: string;
+  /** The Agent's own base URL (not the Manager's), for display purposes. */
+  agentBaseUrl: string;
 }
 
 interface ServerContextValue {
@@ -49,6 +51,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         baseUrl: managerBaseUrl ?? '',
         token: sessionToken ?? '',
         agentId: a.id,
+        agentBaseUrl: a.baseUrl,
       })),
     [agents, managerBaseUrl, sessionToken],
   );

@@ -2,9 +2,10 @@
  * Bearer-session authentication middleware.
  *
  * Every request (except the public login route, the health probe, and CORS
- * preflights) must carry `Authorization: Bearer <session-token>`. The token
- * is looked up in the manager_sessions table and rejected if missing or
- * expired.
+ * preflights) must carry `Authorization: Bearer <session-token>` or
+ * `?access_token=<session-token>` (SSE EventSource cannot send headers).
+ * The token is looked up in the manager_sessions table and rejected if
+ * missing or expired.
  *
  * On success, the request is decorated with `req.userToken` so downstream
  * handlers (e.g. the proxy) can use it without re-parsing the header.
@@ -27,32 +28,31 @@ const PUBLIC_PATHS = new Set<string>([
 
 export function registerAuth(app: FastifyInstance, storage: Storage): void {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    // CORS preflight: respond without inspecting auth. Browsers won't send
-    // credentials on the preflight anyway.
+    // CORS preflight: respond without inspecting auth.
     if (req.method === 'OPTIONS') return;
 
-    // Strip query string before matching — /v1/manager/auth/login is public
-    // regardless of how the client spelled it.
+    // Strip query string before matching public paths.
     const path = req.url.split('?')[0] ?? req.url;
     if (PUBLIC_PATHS.has(path)) return;
 
-    // Anything that isn't under /v1/ is treated as a SPA asset (HTML /
-    // JS / CSS / static). The browser must be able to load the login
-    // page and its bundles without a session token; the SPA then calls
-    // /v1/manager/auth/me to discover whether a stored token is valid.
+    // Anything that isn't under /v1/ is a SPA asset — always allow.
     if (!path.startsWith('/v1/')) return;
 
+    // Extract token from Authorization header or ?access_token= query param
+    // (the latter is needed for SSE streams where EventSource cannot set
+    // custom headers, matching the agent's auth behaviour).
     const header = req.headers['authorization'] ?? '';
-    if (!header.toLowerCase().startsWith('bearer ')) {
-      return reply.code(401).send({
-        error: { code: 'unauthorized', message: 'missing bearer token' },
-      });
+    let token = '';
+    if (header.toLowerCase().startsWith('bearer ')) {
+      token = header.slice(7).trim();
+    } else {
+      const queryToken = (req.query as Record<string, string>)['access_token'] ?? '';
+      if (queryToken) token = queryToken;
     }
 
-    const token = header.slice(7).trim();
     if (!token) {
       return reply.code(401).send({
-        error: { code: 'unauthorized', message: 'missing bearer token' },
+        error: { code: 'unauthorized', message: 'missing bearer token or access_token' },
       });
     }
 

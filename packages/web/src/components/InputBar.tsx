@@ -78,7 +78,10 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
     if (mapped) {
       e.preventDefault();
       onChange(mapped);
-      if (e.key === 'Enter') onEnter?.();
+      if (e.key === 'Enter') {
+        setValue('');
+        onEnter?.();
+      }
       return;
     }
     // Ctrl+<key> → control byte.

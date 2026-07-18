@@ -17,24 +17,24 @@ export function ServerListPage() {
       <div className="page-inner">
         <div className="page-header">
           <div>
-            <div className="page-title">Servers</div>
+            <div className="page-title">Agents</div>
             <div className="page-subtitle">
               {servers.length === 0
-                ? 'Add a server to get started'
-                : `${servers.length} server${servers.length > 1 ? 's' : ''}`}
+                ? 'Add an agent to get started'
+                : `${servers.length} agent${servers.length > 1 ? 's' : ''}`}
             </div>
           </div>
           <div className="toolbar">
-            <button onClick={() => navigate('/servers/new')}>+ Add Server</button>
+            <button onClick={() => navigate('/servers/new')}>+ Add Agent</button>
           </div>
         </div>
 
         {servers.length === 0 && (
           <div className="empty">
             <div className="empty-icon">🖥️</div>
-            <div className="empty-text">No servers yet</div>
+            <div className="empty-text">No agents yet</div>
             <div className="empty-hint">
-              Add your first tired-pc server to start controlling sessions from the browser.
+              Add your first tired-pc agent to start controlling sessions from the browser.
             </div>
           </div>
         )}
