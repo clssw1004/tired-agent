@@ -1,16 +1,22 @@
 /**
  * tired-agent agent daemon — PTY executor entry point.
+ *
+ * Exports {@link main} for programmatic use. Also runs as a standalone
+ * entry (from `node dist/index.js` or `npm start`) — in that case it
+ * parses argv with the embedded CLI.
  */
 
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// Load .env from the agent package root, regardless of process.cwd().
+// Load .env when invoked directly (e.g. `node dist/index.js`).
+// When invoked via cli.ts, dotenv is already loaded — this is harmless.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: resolve(__dirname, '../.env') });
 
 import { loadConfig, validateConfig } from './config.js';
+import type { ServerConfig } from './config.js';
 import { createStorage } from './session/storage.js';
 import { SessionManager } from './session/manager.js';
 import { createApp } from './app.js';
@@ -19,8 +25,8 @@ import { log } from './util/log.js';
 import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 
-async function main(argv: string[]) {
-  const cfg = loadConfig(argv);
+/** Start the agent with a fully resolved config. */
+export async function main(cfg: ServerConfig) {
   validateConfig(cfg);
 
   // ── Auto-register with Manager if configured ───────────────────
@@ -99,7 +105,10 @@ async function main(argv: string[]) {
   }
 }
 
-main(process.argv).catch((err) => {
+// Direct invocation: parse argv and start.
+// When invoked via cli.ts the commander entry bypasses this.
+const _cfg = loadConfig(process.argv);
+main(_cfg).catch((err) => {
   log.fatal({ err }, 'unhandled startup error');
   process.exit(1);
 });
