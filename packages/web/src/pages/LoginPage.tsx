@@ -45,7 +45,10 @@ export function LoginPage() {
     return (
       <div className="login">
         <div className="login-card">
-          <h1>tired-agent</h1>
+          <div className="login-brand">
+            <div className="login-brand-logo" aria-hidden>T</div>
+            <div className="login-brand-name">tired-agent</div>
+          </div>
           <p className="tagline">Connect to your Manager to get started.</p>
 
           {auth.error && (
@@ -94,12 +97,12 @@ export function LoginPage() {
               />
             </div>
 
-            <button type="submit" style={{ width: '100%' }}>
-              Connect
+            <button type="submit" disabled={auth.status === 'logging-in'}>
+              {auth.status === 'logging-in' ? 'Connecting…' : 'Connect'}
             </button>
           </form>
 
-          <div style={{ marginTop: 12, textAlign: 'center' }}>
+          <div className="login-help">
             <button
               type="button"
               className="btn-ghost"
