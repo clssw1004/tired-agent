@@ -7,6 +7,7 @@ import { SessionCreatePage } from './pages/SessionCreatePage';
 import { TerminalPage } from './pages/TerminalPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { useAuth } from './store/AuthContext';
+import { ToastProvider } from './components/Toast';
 
 /**
  * Top nav, only visible when the user is logged in. LoginPage handles
@@ -37,6 +38,7 @@ export default function App() {
     // app-shell extends #root's flex column so that pages can use `flex: 1`
     // to fill the viewport. Without it, nested `height: 100%` between the
     // router and the page collapses to 0 and xterm never gets a height.
+    <ToastProvider>
     <div className="app-shell">
       <AppNav />
       <Routes>
@@ -51,5 +53,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
+    </ToastProvider>
   );
 }

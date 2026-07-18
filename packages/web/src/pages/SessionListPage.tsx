@@ -5,6 +5,7 @@ import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { SessionCard } from '../components/SessionCard';
 import { Modal } from '../components/Modal';
+import { useToast } from '../components/Toast';
 
 type StatusFilter = 'all' | SessionStatus;
 
@@ -31,6 +32,7 @@ export function SessionListPage() {
   >(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState(false);
+  const toast = useToast();
 
   // IMPORTANT: memoize the ServerRef. Inline object literals get a fresh
   // identity on every render, which would invalidate useCallback deps below
@@ -90,16 +92,21 @@ export function SessionListPage() {
     try {
       if (pending.kind === 'kill') {
         await transport.killSession(serverRef, pending.sessionId, agentId);
+        toast.success(`Killed session ${pending.sessionId.slice(0, 8)}`);
       } else if (pending.kind === 'delete') {
         await transport.deleteSession(serverRef, pending.sessionId, agentId);
+        toast.success('Session log deleted');
       } else if (pending.kind === 'prune') {
         const r = await transport.pruneSessions(serverRef, 24, agentId);
         setPruneInfo(r.removed);
+        toast.success(`Cleaned ${r.removed} stale session${r.removed === 1 ? '' : 's'}`);
       }
       setPending(null);
       await load();
     } catch (e) {
-      setModalError((e as Error).message);
+      const msg = (e as Error).message;
+      setModalError(msg);
+      toast.error(msg);
     } finally {
       setBusyAction(false);
     }
