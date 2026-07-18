@@ -21,12 +21,15 @@ import { createStorage } from './session/storage.js';
 import { SessionManager } from './session/manager.js';
 import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
-import { log } from './util/log.js';
+import { log, initLogger } from './util/log.js';
 import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
+  // Initialise the logger from config (file + rotation in daemon mode).
+  initLogger({ logDir: cfg.logDir, level: cfg.logLevel });
+
   validateConfig(cfg);
 
   // ── Auto-register with Manager if configured ───────────────────

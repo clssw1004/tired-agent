@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 // Load .env from package root.
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +31,8 @@ import { type ServerConfig } from './config.js';
 const pkg = JSON.parse(
   readFileSync(resolve(__dirname, '../package.json'), 'utf-8'),
 );
+
+const DEFAULT_DATA_DIR = join(homedir(), '.tiredagent');
 
 async function run() {
   const program = new Command();
@@ -43,23 +47,29 @@ async function run() {
     .command('start')
     .description('Start the agent daemon')
     .option('-p, --port <port>', `Port to listen on (env: PORT, default ${process.env['PORT'] ?? 8444})`, String(process.env['PORT'] ?? 8444))
-    .option('-H, --host <address>', `Host to bind to (env: HOST, default ${process.env['HOST'] ?? '127.0.0.1'})`, process.env['HOST'] ?? '127.0.0.1')
+    .option('-H, --host <address>', `Host to bind to (env: HOST, default 127.0.0.1; or 0.0.0.0 when --register is set)`, process.env['HOST'] ?? '')
     .option('-t, --token <token>', 'Bearer token for incoming auth (env: CLSSW_TOKEN)')
-    .option('-d, --data-dir <path>', `Data directory (env: CLSSW_DATA, default ./data)`, process.env['CLSSW_DATA'] ?? './data')
+    .option('-d, --data-dir <path>', `Data directory (env: CLSSW_DATA, default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
     .option('-n, --name <name>', 'Agent name for Manager registration (env: CLSSW_AGENT_NAME)', process.env['CLSSW_AGENT_NAME'] ?? '')
     .option('--register <string>', 'Base64-encoded Manager registration string (env: CLSSW_REGISTER)', process.env['CLSSW_REGISTER'] ?? '')
+    .option('--log-level <level>', `Log level (env: CLSSW_LOG_LEVEL, default info)`, process.env['CLSSW_LOG_LEVEL'] ?? 'info')
     .option('--sse-format <format>', 'SSE data format: base64 | hex', process.env['CLSSW_SSE_FORMAT'] ?? 'base64')
     .option('--sse-debug', 'Enable SSE hex dump logging', process.env['CLSSW_DEBUG_SSE'] === '1')
     .action(async (opts) => {
+      const registerString = opts.register || null;
+      // If registering with a remote Manager, default bind to 0.0.0.0.
+      const host = opts.host || (registerString ? '0.0.0.0' : '127.0.0.1');
       const cfg: ServerConfig = {
         port: Number(opts.port),
-        host: opts.host,
+        host,
         token: opts.token ?? process.env['CLSSW_TOKEN'] ?? '',
         dataDir: opts.dataDir,
+        logDir: join(opts.dataDir, 'logs'),
+        logLevel: opts.logLevel,
         sseFormat: opts.sseFormat === 'hex' ? 'hex' : 'base64',
         sseDebugLog: !!opts.sseDebug,
         name: opts.name,
-        registerString: opts.register || null,
+        registerString,
       };
       await main(cfg);
     });
