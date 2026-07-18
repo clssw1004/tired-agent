@@ -3,7 +3,11 @@
  * CLI args take precedence over env vars; defaults are documented inline.
  */
 
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { homedir } from 'node:os';
+
+/** Default data directory: ~/.tiredagent */
+const DEFAULT_DATA_DIR = join(homedir(), '.tiredagent');
 
 export interface ServerConfig {
   /** Port to listen on. */
@@ -14,10 +18,18 @@ export interface ServerConfig {
   token: string;
   /** Directory where SQLite DB and PTY log files are stored. */
   dataDir: string;
+  /** Directory for log files (defaults to {dataDir}/logs). */
+  logDir: string;
+  /** Log level. Default info. */
+  logLevel: string;
   /** Encoding used in the SSE `data:` payloads for output chunks. */
   sseFormat: 'base64' | 'hex';
   /** When true, logs a hex+ASCII dump of every input/output byte stream. */
   sseDebugLog: boolean;
+  /** Agent name for manager registration. */
+  name: string;
+  /** Base64-encoded registration string for manager auto-registration. */
+  registerString: string | null;
 }
 
 function parseInt10(value: string | undefined, fallback: number): number {
@@ -48,6 +60,13 @@ function parseArgs(argv: string[]): Partial<ServerConfig> {
       case '-d':
         if (next) { out.dataDir = resolve(next); i++; }
         break;
+      case '--name':
+      case '-n':
+        if (next) { out.name = next; i++; }
+        break;
+      case '--register':
+        if (next) { out.registerString = next; i++; }
+        break;
     }
   }
   return out;
@@ -57,13 +76,24 @@ export function loadConfig(argv: string[]): ServerConfig {
   const cli = parseArgs(argv);
   const env = process.env;
 
+  const registerString = cli.registerString ?? env.CLSSW_REGISTER ?? null;
+
+  // If registering with a remote Manager, default to 0.0.0.0 so the
+  // Manager can reach us.  Otherwise keep the safe loopback default.
+  const defaultHost = registerString ? '0.0.0.0' : '127.0.0.1';
+  const dataDir = cli.dataDir ? resolve(cli.dataDir) : resolve(env.CLSSW_DATA ?? DEFAULT_DATA_DIR);
+
   return {
     port: cli.port ?? parseInt10(env.PORT, 8444),
-    host: cli.host ?? env.HOST ?? '127.0.0.1',
+    host: cli.host ?? env.HOST ?? defaultHost,
     token: cli.token ?? env.CLSSW_TOKEN ?? '',
-    dataDir: cli.dataDir ?? resolve(env.CLSSW_DATA ?? './data'),
+    dataDir,
+    logDir: resolve(env.CLSSW_LOG_DIR ?? join(dataDir, 'logs')),
+    logLevel: env.CLSSW_LOG_LEVEL ?? 'info',
     sseFormat: env['CLSSW_SSE_FORMAT'] === 'hex' ? 'hex' : 'base64',
     sseDebugLog: env['CLSSW_DEBUG_SSE'] === '1',
+    name: cli.name ?? env.CLSSW_AGENT_NAME ?? '',
+    registerString,
   };
 }
 

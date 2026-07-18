@@ -10,7 +10,9 @@ import type { SessionManager } from './session/manager.js';
 import { registerAuth } from './auth.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerStreamRoute } from './routes/stream.js';
-import { log } from './util/log.js';
+import { log, initLogger } from './util/log.js';
+import { config as loadDotenv } from 'dotenv';
+import { join } from 'node:path';
 
 export async function createApp(
   cfg: ServerConfig,

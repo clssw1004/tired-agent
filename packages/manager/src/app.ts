@@ -45,7 +45,7 @@ export async function createApp(
 
   // ── Routes ─────────────────────────────────────────────────────────────
   registerAuthRoutes(app, storage, cfg);
-  registerAgentRoutes(app, storage);
+  registerAgentRoutes(app, storage, cfg);
   registerProxyRoutes(app, storage);
 
   // ── SPA host (must come last so it can install a catch-all 404) ─────────

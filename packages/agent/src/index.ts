@@ -1,26 +1,65 @@
 /**
  * tired-agent agent daemon — PTY executor entry point.
+ *
+ * Exports {@link main} for programmatic use. Also runs as a standalone
+ * entry (from `node dist/index.js` or `npm start`) — in that case it
+ * parses argv with the embedded CLI.
  */
 
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { homedir } from 'node:os';
 
-// Load .env from the agent package root, regardless of process.cwd().
+// Load .env when invoked directly (e.g. `node dist/index.js`).
+// When invoked via cli.ts, dotenv is already loaded — this is harmless.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: resolve(__dirname, '../.env') });
+// Also load user's .env from the default data directory.
+loadDotenv({ path: join(homedir(), '.tiredagent', '.env'), override: true });
 
 import { loadConfig, validateConfig } from './config.js';
+import type { ServerConfig } from './config.js';
 import { createStorage } from './session/storage.js';
 import { SessionManager } from './session/manager.js';
 import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
-import { log } from './util/log.js';
+import { log, initLogger } from './util/log.js';
+import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 
-async function main(argv: string[]) {
-  const cfg = loadConfig(argv);
+/** Start the agent with a fully resolved config. */
+export async function main(cfg: ServerConfig) {
+  // Initialise the logger from config (file + rotation in daemon mode).
+  initLogger({ logDir: cfg.logDir, level: cfg.logLevel });
+
   validateConfig(cfg);
+
+  // ── Auto-register with Manager if configured ───────────────────
+  if (cfg.registerString) {
+    try {
+      log.info('Registering with Manager…');
+      const creds = await getOrRegisterCredentials(cfg);
+      if (creds) {
+        cfg.token = creds.token;
+        log.info({ agentId: creds.id }, 'Registration complete');
+      }
+    } catch (err) {
+      log.error({ err }, 'Registration failed');
+      // Non-fatal: the agent will still start with its configured token.
+    }
+  } else {
+    // Check for previously saved credentials (from a prior registration).
+    try {
+      const creds = await getOrRegisterCredentials(cfg);
+      if (creds) {
+        cfg.token = creds.token;
+        log.debug('Loaded agent credentials from file');
+      }
+    } catch {
+      // Ignore — will use configured token.
+    }
+  }
 
   const storage = createStorage({
     kind: (process.env['STORAGE_KIND'] as StorageKind) ?? 'sqlite',
@@ -72,7 +111,10 @@ async function main(argv: string[]) {
   }
 }
 
-main(process.argv).catch((err) => {
+// Direct invocation: parse argv and start.
+// When invoked via cli.ts the commander entry bypasses this.
+const _cfg = loadConfig(process.argv);
+main(_cfg).catch((err) => {
   log.fatal({ err }, 'unhandled startup error');
   process.exit(1);
 });

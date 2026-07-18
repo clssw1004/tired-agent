@@ -24,6 +24,7 @@ declare module 'fastify' {
 const PUBLIC_PATHS = new Set<string>([
   '/health',
   '/v1/manager/auth/login',
+  '/v1/manager/agents/register',
 ]);
 
 export function registerAuth(app: FastifyInstance, storage: Storage): void {

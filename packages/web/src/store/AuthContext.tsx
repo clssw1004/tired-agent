@@ -27,8 +27,7 @@ export interface AgentSummary {
 
 export type AuthStatus =
   | 'uninitialized'
-  | 'needs-manager'
-  | 'needs-login'
+  | 'needs-credentials'
   | 'logged-in'
   | 'logging-in'
   | 'error';
@@ -40,6 +39,8 @@ export interface AuthState {
   status: AuthStatus;
   error: string | null;
   setManagerBaseUrl(url: string): void;
+  /** Atomic: set base URL + login in one call. */
+  connectAndLogin(url: string, token: string): Promise<void>;
   login(token: string): Promise<void>;
   logout(): void;
   refreshAgents(): Promise<void>;
@@ -82,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(SESSION_TOKEN_KEY);
     setSessionTokenState(null);
     setAgents([]);
-    setStatus('needs-login');
+    setStatus('needs-credentials');
     setError(null);
   }, []);
 
@@ -97,20 +98,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [managerBaseUrl, sessionToken]);
 
   const login = useCallback(
-    async (token: string) => {
-      if (!managerBaseUrl) {
-        setStatus('needs-manager');
+    async (token: string, baseUrlOverride?: string) => {
+      const baseUrl = baseUrlOverride ?? managerBaseUrl;
+      if (!baseUrl) {
+        setStatus('needs-credentials');
         throw new Error('Manager base URL is not set');
       }
       setStatus('logging-in');
       setError(null);
       try {
-        const ref = makeManagerRef(managerBaseUrl, null);
+        const ref = makeManagerRef(baseUrl, null);
         const { sessionToken: newToken } = await transport.login(ref, token);
         localStorage.setItem(SESSION_TOKEN_KEY, newToken);
         setSessionTokenState(newToken);
         const list = await transport.listAgents(
-          makeManagerRef(managerBaseUrl, newToken),
+          makeManagerRef(baseUrl, newToken),
         );
         setAgents(list);
         setStatus('logged-in');
@@ -124,11 +126,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [managerBaseUrl],
   );
 
+  /** Atomic: set base URL + login in one call. */
+  const connectAndLogin = useCallback(
+    async (url: string, token: string) => {
+      const cleanUrl = url.trim().replace(/\/+$/, '');
+      if (!cleanUrl) {
+        setStatus('needs-credentials');
+        throw new Error('Manager URL is required');
+      }
+      localStorage.setItem(BASE_URL_KEY, cleanUrl);
+      setManagerBaseUrlState(cleanUrl);
+      localStorage.removeItem(SESSION_TOKEN_KEY);
+      setSessionTokenState(null);
+      setAgents([]);
+      await login(token, cleanUrl);
+    },
+    [login],
+  );
+
   const logout = useCallback(() => {
     localStorage.removeItem(SESSION_TOKEN_KEY);
     setSessionTokenState(null);
     setAgents([]);
-    setStatus('needs-login');
+    setStatus('needs-credentials');
     setError(null);
   }, []);
 
@@ -166,11 +186,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       if (!managerBaseUrl) {
-        if (!cancelled) setStatus('needs-manager');
+        if (!cancelled) setStatus('needs-credentials');
         return;
       }
       if (!sessionToken) {
-        if (!cancelled) setStatus('needs-login');
+        if (!cancelled) setStatus('needs-credentials');
         return;
       }
       try {
@@ -181,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!ok) {
           localStorage.removeItem(SESSION_TOKEN_KEY);
           setSessionTokenState(null);
-          setStatus('needs-login');
+          setStatus('needs-credentials');
           return;
         }
         const list = await transport.listAgents(
@@ -196,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(SESSION_TOKEN_KEY);
         setSessionTokenState(null);
         setError((e as Error).message);
-        setStatus('needs-login');
+        setStatus('needs-credentials');
       }
     })();
     return () => {
@@ -212,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       error,
       setManagerBaseUrl,
+      connectAndLogin,
       login,
       logout,
       refreshAgents,
@@ -225,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       error,
       setManagerBaseUrl,
+      connectAndLogin,
       login,
       logout,
       refreshAgents,

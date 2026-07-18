@@ -1,8 +1,11 @@
 {
   "name": "@tired-agent/protocol",
   "version": "0.1.0",
-  "private": true,
+  "publishConfig": { "access": "public" },
   "description": "Shared TypeScript types and Transport interface for tired-agent",
+  "repository": { "type": "git", "url": "git+https://github.com/clssw1004/tired-agent.git" },
+  "bugs": { "url": "https://github.com/clssw1004/tired-agent/issues" },
+  "homepage": "https://github.com/clssw1004/tired-agent#readme",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -15,6 +18,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
