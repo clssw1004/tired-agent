@@ -33,7 +33,7 @@ export function LoginPage() {
     return (
       <div className="login">
         <div className="login-card">
-          <h1>tired-pc</h1>
+          <h1>tired-agent</h1>
           <p className="tagline">Connect to your Manager to get started.</p>
 
           <form
@@ -80,7 +80,7 @@ export function LoginPage() {
     return (
       <div className="login">
         <div className="login-card">
-          <h1>tired-pc</h1>
+          <h1>tired-agent</h1>
           <p className="tagline">
             Sign in to <code>{auth.managerBaseUrl}</code>
           </p>
@@ -127,8 +127,8 @@ export function LoginPage() {
               type="button"
               className="btn-ghost"
               onClick={() => {
-                localStorage.removeItem('tired-pc:manager-base-url');
-                localStorage.removeItem('tired-pc:manager-session-token');
+                localStorage.removeItem('tired-agent:manager-base-url');
+                localStorage.removeItem('tired-agent:manager-session-token');
                 window.location.reload();
               }}
             >
@@ -145,7 +145,7 @@ export function LoginPage() {
     return (
       <div className="login">
         <div className="login-card">
-          <h1>tired-pc</h1>
+          <h1>tired-agent</h1>
           <p className="tagline">Connecting…</p>
         </div>
       </div>
@@ -161,7 +161,7 @@ export function LoginPage() {
   return (
     <div className="login">
       <div className="login-card">
-        <h1>tired-pc</h1>
+        <h1>tired-agent</h1>
         {auth.error && (
           <div className="error-banner">
             <span>{auth.error}</span>
@@ -181,8 +181,8 @@ export function LoginPage() {
             type="button"
             className="btn-ghost"
             onClick={() => {
-              localStorage.removeItem('tired-pc:manager-base-url');
-              localStorage.removeItem('tired-pc:manager-session-token');
+              localStorage.removeItem('tired-agent:manager-base-url');
+              localStorage.removeItem('tired-agent:manager-session-token');
               window.location.reload();
             }}
           >

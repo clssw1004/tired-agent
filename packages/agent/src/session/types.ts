@@ -1,12 +1,12 @@
 /**
  * Session domain types — server-internal, not exposed on the wire
- * (wire-level types live in @tired-pc/protocol).
+ * (wire-level types live in @tired-agent/protocol).
  */
 
 import type {
   SessionStatus,
   SessionSpec,
-} from '@tired-pc/protocol';
+} from '@tired-agent/protocol';
 
 export interface SessionRecord {
   id: string;

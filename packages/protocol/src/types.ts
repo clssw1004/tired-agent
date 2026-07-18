@@ -1,5 +1,5 @@
 /**
- * Shared type definitions for tired-pc.
+ * Shared type definitions for tired-agent.
  *
  * These types describe the wire-level data exchanged between the
  * client (Expo app) and the server daemon. Both sides import them

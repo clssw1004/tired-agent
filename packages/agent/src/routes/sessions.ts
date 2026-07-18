@@ -4,13 +4,13 @@
  * Base path: /v1/sessions
  *
  * Schema validation via zod on request bodies.
- * Wire-level types (Session, SessionSpec…) are re-exported from @tired-pc/protocol
+ * Wire-level types (Session, SessionSpec…) are re-exported from @tired-agent/protocol
  * so both client and server share the same contract.
  */
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { SessionSpec, SessionStatus } from '@tired-pc/protocol';
+import type { SessionSpec, SessionStatus } from '@tired-agent/protocol';
 import type { ServerConfig } from '../config.js';
 import type { SessionManager } from '../session/manager.js';
 import type { Storage } from '../session/storage.js';

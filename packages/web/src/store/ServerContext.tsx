@@ -15,7 +15,7 @@
 
 import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import type { ServerRef } from '@tired-pc/protocol';
+import type { ServerRef } from '@tired-agent/protocol';
 import { useAuth } from './AuthContext';
 
 /**

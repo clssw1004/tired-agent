@@ -1,8 +1,8 @@
-# tired-pc ChatContainer 架构重新设计
+# tired-agent ChatContainer 架构重新设计
 
 > 日期：2026-07-18
 > 状态：设计阶段
-> 关联：tired-pc Agent Rendering Engine (2026-07-18-agent-renderer-design.md)
+> 关联：tired-agent Agent Rendering Engine (2026-07-18-agent-renderer-design.md)
 
 ---
 

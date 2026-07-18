@@ -22,8 +22,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ServerRef, SessionStatus } from '@tired-pc/protocol';
-import { createHttpSseTransport } from '@tired-pc/protocol';
+import type { ServerRef, SessionStatus } from '@tired-agent/protocol';
+import { createHttpSseTransport } from '@tired-agent/protocol';
 import { defaultRegistry, initRenderers, GenericPtyRenderer } from '../renderer';
 import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';

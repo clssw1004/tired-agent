@@ -34,7 +34,7 @@ export function ServerListPage() {
             <div className="empty-icon">🖥️</div>
             <div className="empty-text">No agents yet</div>
             <div className="empty-hint">
-              Add your first tired-pc agent to start controlling sessions from the browser.
+              Add your first tired-agent agent to start controlling sessions from the browser.
             </div>
           </div>
         )}

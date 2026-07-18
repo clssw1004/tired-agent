@@ -1,5 +1,5 @@
 /**
- * tired-pc manager — entry point.
+ * tired-agent manager — entry point.
  *
  * Orchestrates bootstrapping; heavy lifting lives in app.ts / shutdown.ts.
  *
@@ -47,7 +47,7 @@ async function main(argv: string[]) {
 
   try {
     await app.listen({ port: cfg.port, host: cfg.host });
-    log.info({ host: cfg.host, port: cfg.port }, 'tired-pc manager listening');
+    log.info({ host: cfg.host, port: cfg.port }, 'tired-agent manager listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
       'Log in with: POST /v1/manager/auth/login { "token": "<token>" }',

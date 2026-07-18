@@ -12,7 +12,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import type { SessionRecord } from './types.js';
-import type { SessionStatus } from '@tired-pc/protocol';
+import type { SessionStatus } from '@tired-agent/protocol';
 
 // ─── CJS require bridge for better-sqlite3 ─────────────────────────────────────
 const _require = createRequire(import.meta.url);
@@ -49,7 +49,7 @@ export interface Storage {
 // ─── SqliteStorage ─────────────────────────────────────────────────────────────
 
 export function createSqliteStorage(dataDir: string): Storage {
-  const dbPath = join(dataDir, 'tired-pc.db');
+  const dbPath = join(dataDir, 'tired-agent.db');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let _db: any = null;
 

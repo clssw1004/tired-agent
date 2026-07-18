@@ -3,7 +3,7 @@
  *
  * The SPA now talks to a Manager (instead of saving server URLs in
  * localStorage). On mount we:
- *   1. Read `tired-pc:manager-base-url` + `tired-pc:manager-session-token`
+ *   1. Read `tired-agent:manager-base-url` + `tired-agent:manager-session-token`
  *      from localStorage.
  *   2. If both are present, call `transport.checkSession` to validate the
  *      token. If valid, fetch the agent list and go to `logged-in`.
@@ -16,7 +16,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import type { ServerRef } from '@tired-pc/protocol';
+import type { ServerRef } from '@tired-agent/protocol';
 import { transport } from '../api/transport';
 
 export interface AgentSummary {
@@ -47,8 +47,8 @@ export interface AuthState {
   deleteAgent(id: string): Promise<void>;
 }
 
-const BASE_URL_KEY = 'tired-pc:manager-base-url';
-const SESSION_TOKEN_KEY = 'tired-pc:manager-session-token';
+const BASE_URL_KEY = 'tired-agent:manager-base-url';
+const SESSION_TOKEN_KEY = 'tired-agent:manager-session-token';
 
 /**
  * Build a ServerRef that points at the Manager — used for all

@@ -1,4 +1,4 @@
-# tired-pc
+# tired-agent
 
 > *Let your home PC work overtime, even while you're out.*
 
@@ -32,8 +32,9 @@ A self-hostable system that lets you run interactive CLI tools (like `claude`, `
 ```
 packages/
   protocol/   # Shared TypeScript types + Transport interface + HttpSseTransport
-  server/     # Node.js daemon — API-only, no web UI
-  web/        # React + Vite SPA (standalone, deploy to nginx or run with `vite`)
+  agent/      # PTY executor daemon — runs on controlled machines
+  manager/    # Web portal + agent proxy + SPA host
+  web/        # React + Vite SPA
 ```
 
 ## Quick Start
@@ -52,11 +53,18 @@ npm run build:protocol
 npm run build:web
 ```
 
-### Run server
+### Run agent
 
 ```powershell
 $env:CLSSW_TOKEN = "my-secret-12345"
-npm run dev:server -- --port 8443 --data ./packages/server/data
+npm run dev:agent -- --port 8444 --data ./packages/agent/data
+```
+
+### Run manager
+
+```powershell
+$env:CLSSW_MANAGER_TOKEN = "admin-token-xxx"
+npm run dev:manager -- --port 8443
 ```
 
 ### Run web (dev mode)
@@ -69,17 +77,14 @@ npm run dev:web
 
 ### In the web UI
 
-1. "+ Add Server" → URL: `http://127.0.0.1:8443`, Token: `my-secret-12345`
-2. Tap → "New Session" → enter `cmd.exe` (Windows) or `bash` (Unix)
-3. The terminal view opens; read output and type commands
-
-### Production deployment (nginx + server)
-
-See [docs/nginx-tired-pc.conf](docs/nginx-tired-pc.conf) for an example nginx config that serves the web SPA at `/` and reverse-proxies `/v1/*` to the server.
+1. Enter the Manager URL and sign in with the admin token
+2. "+ Add Agent" → URL of the agent daemon + its token
+3. Tap an agent → "New Session" → enter `cmd.exe` (Windows) or `bash` (Unix)
+4. The terminal view opens; read output and type commands
 
 ## Documentation
 
-- [Design document](docs/superpowers/specs/2026-07-15-tired-pc-design.md)
+- [Design document](docs/superpowers/specs/2026-07-15-tired-agent-design.md)
 
 ## License
 

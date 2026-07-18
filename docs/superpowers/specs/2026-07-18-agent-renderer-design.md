@@ -1,8 +1,8 @@
-# tired-pc Agent Rendering Engine — 设计文档
+# tired-agent Agent Rendering Engine — 设计文档
 
 > 日期：2026-07-18
 > 状态：设计阶段
-> 关联：tired-pc 前端渲染层重构
+> 关联：tired-agent 前端渲染层重构
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1.1 问题
 
-tired-pc 的核心就是一个远程 PTY 执行器：接收输入 → 传送到远程 PTY → 传出输出。但在实际使用中，**同一个 PTY 管道里跑的程序不同，用户期望的展示方式完全不同**：
+tired-agent 的核心就是一个远程 PTY 执行器：接收输入 → 传送到远程 PTY → 传出输出。但在实际使用中，**同一个 PTY 管道里跑的程序不同，用户期望的展示方式完全不同**：
 
 | 程序 | 输出特征 | 期望展示方式 |
 |------|----------|-------------|
@@ -225,7 +225,7 @@ export type StructuredContent =
 ```typescript
 // packages/web/src/renderer/types.ts
 
-import type { StructuredContent } from '@tired-pc/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 
 export type DisplayMode = 'chat' | 'replace-last' | 'snapshot' | 'dashboard';
 

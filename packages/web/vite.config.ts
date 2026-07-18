@@ -6,12 +6,12 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Standalone Vite config for the tired-pc web SPA.
+ * Standalone Vite config for the tired-agent web SPA.
  *
  * - npm run dev   → start Vite dev server on :5173 with /v1 proxied to :8443
  * - npm run build → emit static files to ./dist (deployable to nginx)
  *
- * The `@tired-pc/protocol` alias points to the file:-installed package
+ * The `@tired-agent/protocol` alias points to the file:-installed package
  * (../protocol), which after `npm install` contains either src/ or dist/
  * depending on whether protocol was built first.
  */
@@ -31,7 +31,7 @@ export default defineConfig({
       // fly — fixes the long-standing "fix protocol, refresh, still wrong"
       // bug caused by hardcoding this to dist/index.js (which only updates
       // when somebody remembers to rebuild).
-      '@tired-pc/protocol': resolve(__dirname, '../protocol/src/index.ts'),
+      '@tired-agent/protocol': resolve(__dirname, '../protocol/src/index.ts'),
     },
   },
   server: {

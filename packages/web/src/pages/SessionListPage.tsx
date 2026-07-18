@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Session, SessionStatus } from '@tired-pc/protocol';
+import type { Session, SessionStatus } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { SessionCard } from '../components/SessionCard';

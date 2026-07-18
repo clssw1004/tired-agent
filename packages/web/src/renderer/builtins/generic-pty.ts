@@ -7,7 +7,7 @@
  * the renderer registry to satisfy the AgentRenderer interface.
  */
 
-import type { StructuredContent } from '@tired-pc/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 import type { AgentDetector, AgentRenderer, RenderContext, RenderOutput } from '../types.js';
 
 export class GenericPtyRenderer implements AgentRenderer {

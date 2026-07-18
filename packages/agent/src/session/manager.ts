@@ -13,7 +13,7 @@ import type { EventEmitter } from 'node:events';
 import type { IPty } from 'node-pty';
 import { spawn } from 'node-pty';
 import { randomUUID } from 'node:crypto';
-import type { SessionSpec } from '@tired-pc/protocol';
+import type { SessionSpec } from '@tired-agent/protocol';
 import type { SessionRecord } from './types.js';
 import { createSessionRecord } from './types.js';
 import type { Storage } from './storage.js';

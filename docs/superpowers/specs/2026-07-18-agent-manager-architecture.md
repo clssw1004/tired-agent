@@ -1,4 +1,4 @@
-# tired-pc 架构重构：Agent / Manager 分服务
+# tired-agent 架构重构：Agent / Manager 分服务
 
 > 日期：2026-07-18
 > 状态：设计阶段
@@ -21,7 +21,7 @@
 ## 包结构
 
 ```
-@tired-pc/
+@tired-agent/
   agent     ← PTY 执行器（部署在被控机器，无 Web 无 UI）
   manager   ← Web 门户 + 代理 + agent 管理（部署在入口机器）
   web       ← SPA（unchanged，由 manager 服务）
@@ -117,7 +117,7 @@ Browser POST /v1/agents/:aid/sessions/:sid/input { data: base64(...) }
 
 **端口**：默认 8444。
 
-**依赖**：`@tired-pc/protocol`（不变）。
+**依赖**：`@tired-agent/protocol`（不变）。
 
 ```
 packages/agent/src/

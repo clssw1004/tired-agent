@@ -1,5 +1,5 @@
 /**
- * tired-pc agent daemon — PTY executor entry point.
+ * tired-agent agent daemon — PTY executor entry point.
  */
 
 import { config as loadDotenv } from 'dotenv';
@@ -60,7 +60,7 @@ async function main(argv: string[]) {
 
   try {
     await app.listen({ port: cfg.port, host: cfg.host });
-    log.info({ host: cfg.host, port: cfg.port }, 'tired-pc agent listening');
+    log.info({ host: cfg.host, port: cfg.port }, 'tired-agent agent listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
       'Connect with: Authorization: Bearer <token>',

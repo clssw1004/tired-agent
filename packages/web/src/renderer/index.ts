@@ -14,7 +14,7 @@
  * by id.
  */
 
-import type { StructuredContent } from '@tired-pc/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 
 export type {
   AgentRenderer,

@@ -1,8 +1,8 @@
 {
-  "name": "tired-pc",
+  "name": "tired-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "tired-pc — remote persistent interactive session system. Let your home PC work overtime, even while you're out.",
+  "description": "tired-agent — remote persistent interactive session system. Let your home PC work overtime, even while you're out.",
   "workspaces": [
     "packages/protocol",
     "packages/agent",
@@ -11,13 +11,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "build:protocol": "npm run build -w @tired-pc/protocol",
-    "build:agent": "npm run build -w @tired-pc/agent",
-    "build:manager": "npm run build -w @tired-pc/manager",
-    "build:web": "npm run build -w @tired-pc/web",
-    "dev:agent": "npm run dev -w @tired-pc/agent",
-    "dev:manager": "npm run dev -w @tired-pc/manager",
-    "dev:web": "npm run dev -w @tired-pc/web",
+    "build:protocol": "npm run build -w @tired-agent/protocol",
+    "build:agent": "npm run build -w @tired-agent/agent",
+    "build:manager": "npm run build -w @tired-agent/manager",
+    "build:web": "npm run build -w @tired-agent/web",
+    "dev:agent": "npm run dev -w @tired-agent/agent",
+    "dev:manager": "npm run dev -w @tired-agent/manager",
+    "dev:web": "npm run dev -w @tired-agent/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"

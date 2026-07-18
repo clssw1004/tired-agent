@@ -1,7 +1,7 @@
-# tired-pc — 设计文档
+# tired-agent — 设计文档
 
 > 日期：2026-07-15
-> 项目名：tired-pc — "累趴下的电脑，但还被你远程压榨加班"
+> 项目名：tired-agent — "累趴下的电脑，但还被你远程压榨加班"
 > 状态：已批准，进入实施阶段
 > 关联 plan: `C:\Users\cuiwei\.claude\plans\mossy-weaving-badger.md`
 
@@ -85,7 +85,7 @@
 ## 4. 项目结构
 
 ```
-tired-pc/                    # 单 git repo，前后可独立构建交付
+tired-agent/                    # 单 git repo，前后可独立构建交付
 ├── package.json             # workspaces: ["packages/*"]
 ├── tsconfig.base.json
 ├── .gitignore
@@ -125,7 +125,7 @@ tired-pc/                    # 单 git repo，前后可独立构建交付
 │       │   ├── server/[id].tsx  # Session List
 │       │   └── session/[serverId]/[sessionId].tsx  # Terminal View
 │       ├── src/
-│       │   ├── transports/      # 引用 @tired-pc/protocol
+│       │   ├── transports/      # 引用 @tired-agent/protocol
 │       │   ├── store/
 │       │   │   ├── servers.ts   # zustand + AsyncStorage
 │       │   │   └── offsetTracker.ts  # 每个 session 的 lastOffset
@@ -148,7 +148,7 @@ tired-pc/                    # 单 git repo，前后可独立构建交付
 └── docs/
     └── superpowers/
         └── specs/
-            └── 2026-07-15-tired-pc-design.md  (本文件)
+            └── 2026-07-15-tired-agent-design.md  (本文件)
 ```
 
 ---

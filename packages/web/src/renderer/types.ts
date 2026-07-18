@@ -12,7 +12,7 @@
  * to whatever view is registered for their id.
  */
 
-import type { StructuredContent } from '@tired-pc/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 
 /**
  * How the current segment's content should be combined with the previous one.

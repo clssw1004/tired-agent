@@ -1,8 +1,8 @@
 {
-  "name": "@tired-pc/agent",
+  "name": "@tired-agent/agent",
   "version": "0.1.0",
   "private": true,
-  "description": "tired-pc agent — PTY session executor (no web UI)",
+  "description": "tired-agent agent — PTY session executor (no web UI)",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "clean": "rm -rf dist data"
   },
   "dependencies": {
-    "@tired-pc/protocol": "*",
+    "@tired-agent/protocol": "*",
     "@fastify/cors": "^9.0.1",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",

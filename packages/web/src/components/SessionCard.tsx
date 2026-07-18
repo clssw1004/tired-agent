@@ -1,4 +1,4 @@
-import type { Session, SessionStatus } from '@tired-pc/protocol';
+import type { Session, SessionStatus } from '@tired-agent/protocol';
 
 interface Props {
   session: Session;

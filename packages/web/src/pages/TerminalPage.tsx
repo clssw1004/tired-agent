@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Session } from '@tired-pc/protocol';
+import type { Session } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { ChatContainer } from '../components/ChatContainer';
