@@ -1,6 +1,6 @@
 {
   "name": "@tired-agent/agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "tired-agent agent — PTY session executor (no web UI). Run interactive CLI tools remotely.",
   "repository": { "type": "git", "url": "git+https://github.com/clssw1004/tired-agent.git" },
   "bugs": { "url": "https://github.com/clssw1004/tired-agent/issues" },
