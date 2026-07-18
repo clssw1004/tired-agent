@@ -1,6 +1,6 @@
 {
   "name": "tired-agent",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "tired-agent — remote persistent interactive session system. Let your home PC work overtime, even while you're out.",
   "repository": {
