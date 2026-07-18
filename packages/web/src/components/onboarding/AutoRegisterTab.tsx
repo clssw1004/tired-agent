@@ -28,7 +28,7 @@ export function AutoRegisterTab() {
   const trimmedUrl = managerUrl.trim().replace(/\/+$/, '');
   const b64 = trimmedUrl ? encodeRegister({ managerUrl: trimmedUrl }) : '';
   const fullCommand = b64
-    ? `npm install -g @tired-agent/agent && tired-agent start --register "${b64}"`
+    ? `npm install -g @tired-agent/agent && tired-agent start --register "${b64}" --daemon`
     : '';
 
   return (

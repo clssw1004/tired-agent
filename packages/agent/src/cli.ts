@@ -61,9 +61,30 @@ async function run() {
     .option('--log-level <level>', `Log level (env: CLSSW_LOG_LEVEL, default info)`, process.env['CLSSW_LOG_LEVEL'] ?? 'info')
     .option('--sse-format <format>', 'SSE data format: base64 | hex', process.env['CLSSW_SSE_FORMAT'] ?? 'base64')
     .option('--sse-debug', 'Enable SSE hex dump logging', process.env['CLSSW_DEBUG_SSE'] === '1')
+    .option('-D, --daemon', 'Run in background (detach from terminal)')
     .action(async (opts) => {
+      // ── Daemon mode: fork a detached child and exit ───────────
+      if (opts.daemon) {
+        // Rebuild args without `--daemon` so the child runs in foreground.
+        const args = process.argv
+          .slice(2)
+          .filter((a) => a !== '--daemon' && a !== '-D');
+        const { execSync } = await import('node:child_process');
+        const cmd =
+          process.platform === 'win32'
+            ? `start /B "" "${process.execPath}" "${process.argv[1]}" ${args.join(' ')}`
+            : `nohup "${process.execPath}" "${process.argv[1]}" ${args.join(' ')} >/dev/null 2>&1 &`;
+        try {
+          execSync(cmd, { stdio: 'ignore' });
+          console.log(`Agent started in background (PID written to ${join(opts.dataDir, 'agent.pid')}).`);
+        } catch (err) {
+          console.error('Failed to start daemon:', (err as Error).message);
+          process.exit(1);
+        }
+        process.exit(0);
+      }
+
       const registerString = opts.register || null;
-      // If registering with a remote Manager, default bind to 0.0.0.0.
       const host = opts.host || (registerString ? '0.0.0.0' : '127.0.0.1');
       const cfg: ServerConfig = {
         port: Number(opts.port),
@@ -77,14 +98,7 @@ async function run() {
         name: opts.name || hostname(),
         registerString,
       };
-      // Write PID file so `stop` / `restart` can find the daemon.
-      const pidFile = join(opts.dataDir, 'agent.pid');
-      try {
-        writeFileSync(pidFile, String(process.pid), 'utf-8');
-      } catch (e) {
-        const _ = e;
-        // Non-fatal — status command will say "no" when unreachable.
-      }
+      writeFileSync(join(opts.dataDir, 'agent.pid'), String(process.pid), 'utf-8');
       await main(cfg);
     });
 
@@ -92,22 +106,33 @@ async function run() {
   program
     .command('register <base64>')
     .description('Register with a Manager using a base64-encoded connection string, then exit')
-    .action(async (base64: string) => {
-      const { decodeRegisterString, registerWithManager } = await import('./register.js');
+    .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (base64: string, opts) => {
+      const { decodeRegisterString, registerWithManager, loadCredentials, saveCredentials } = await import('./register.js');
+      const { randomUUID } = await import('node:crypto');
 
       const payload = decodeRegisterString(base64);
-      const rawHost = process.env['HOST'] ?? '127.0.0.1';
+      // Default to 0.0.0.0 (auto-detect LAN IP) unless user explicitly sets HOST.
       const { detectLanIp } = await import('./register.js');
-      const host = rawHost === '0.0.0.0' ? detectLanIp() : rawHost;
+      const rawHost = process.env['HOST'];
+      const host = rawHost && rawHost !== '0.0.0.0' ? rawHost : detectLanIp();
       const port = process.env['PORT'] ?? '8444';
       const agentBaseUrl = `http://${host}:${port}`;
 
-      const creds = await registerWithManager(
+      const saved = await loadCredentials(opts.dataDir);
+      const agentKey = saved?.agentKey ?? randomUUID();
+      const result = await registerWithManager(
         payload.managerUrl,
         hostname(),
         agentBaseUrl,
+        agentKey,
       );
-      console.log(JSON.stringify(creds, null, 2));
+      await saveCredentials(opts.dataDir, { agentKey, id: result.id, token: result.token });
+      console.log(`Registered with Manager at ${payload.managerUrl}`);
+      console.log(`  Agent ID:  ${result.id}`);
+      console.log(`  Token:     ${result.token.slice(0, 4)}****`);
+      console.log(`  Agent key: ${agentKey}`);
+      console.log(`Credentials saved to ${join(opts.dataDir, '.agent-credentials')}`);
     });
 
   // ── stop ──────────────────────────────────────────────────────

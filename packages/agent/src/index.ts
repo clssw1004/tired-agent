@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 // Load .env when invoked directly (e.g. `node dist/index.js`).
@@ -77,9 +77,12 @@ export async function main(cfg: ServerConfig) {
     log.warn('No --token / CLSSW_TOKEN provided; auto-generating one.');
     log.warn({ tokenHint: generated.slice(0, 4) + '****' },
       'Save this token — printed once. Set CLSSW_TOKEN=<value> in ~/.tiredagent/.env to pin it.');
-    await persistAutoToken(cfg.dataDir, generated);
     cfg.token = generated;
   }
+
+  // Persist effective config to ~/.tiredagent/.env so user can see and
+  // override defaults. Token always written (fresh or existing).
+  await persistEffectiveConfig(cfg);
 
   const storage = createStorage({
     kind: (process.env['STORAGE_KIND'] as StorageKind) ?? 'sqlite',
@@ -143,26 +146,64 @@ if (_isMain) {
 }
 
 /**
- * Persist an auto-generated token to ~/.tiredagent/.env so subsequent
- * restarts are stable. Adds or replaces the `CLSSW_TOKEN=…` line.
+ * Persist the agent's effective config to ~/.tiredagent/.env so the
+ * user can see and override every setting. Writes a complete .env with
+ * all resolved defaults — missing keys are added, existing ones updated
+ * only if they differ from hard-coded defaults (user-pinned values are
+ * preserved).
  */
-async function persistAutoToken(dataDir: string, token: string): Promise<void> {
-  const envPath = join(dataDir, '.env');
-  const line = `CLSSW_TOKEN=${token}\n`;
+async function persistEffectiveConfig(cfg: ServerConfig): Promise<void> {
+  const envPath = join(cfg.dataDir, '.env');
+  const defaults: Record<string, string> = {
+    CLSSW_TOKEN: cfg.token,
+    CLSSW_AGENT_NAME: cfg.name,
+    CLSSW_DATA: cfg.dataDir,
+    CLSSW_LOG_LEVEL: cfg.logLevel,
+    CLSSW_SSE_FORMAT: cfg.sseFormat,
+    PORT: String(cfg.port),
+    HOST: cfg.host,
+  };
   try {
-    await mkdir(dataDir, { recursive: true });
+    await mkdir(cfg.dataDir, { recursive: true });
     let existing = '';
     if (existsSync(envPath)) {
       existing = await readFile(envPath, 'utf-8');
     }
-    // Replace existing CLSSW_TOKEN line, or append.
-    if (/^CLSSW_TOKEN=.*$/m.test(existing)) {
-      existing = existing.replace(/^CLSSW_TOKEN=.*$/m, `CLSSW_TOKEN=${token}`);
-      await writeFile(envPath, existing, 'utf-8');
-    } else {
-      await appendFile(envPath, line, 'utf-8');
+    const lines = existing.split('\n');
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        out.push(line);
+        continue;
+      }
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) {
+        out.push(line);
+        continue;
+      }
+      const key = trimmed.slice(0, eqIdx);
+      seen.add(key);
+      // Keep user's value only if it's not a default we want to sync.
+      if (key in defaults) {
+        out.push(`${key}=${defaults[key]}`);
+      } else {
+        out.push(line);
+      }
     }
+
+    // Append missing keys.
+    for (const [key, val] of Object.entries(defaults)) {
+      if (!seen.has(key)) {
+        out.push(`${key}=${val}`);
+      }
+    }
+
+    await writeFile(envPath, out.join('\n') + '\n', 'utf-8');
+    log.debug({ envPath }, 'persisted effective config');
   } catch (err) {
-    log.warn({ err }, 'failed to persist auto-generated token');
+    log.warn({ err }, 'failed to persist effective config');
   }
 }

@@ -58,13 +58,17 @@ export interface Storage {
   // ── auto-register ──
   /** Look up an agent by its persistent `agentKey` (for dedup). */
   findAgentByKey(agentKey: string): Agent | undefined;
+  /** Look up an agent by its `baseUrl` (fallback dedup when agentKey is missing). */
+  findAgentByBaseUrl(baseUrl: string): Agent | undefined;
   /**
    * Register (or re-register) an agent.
    *
    * When `agentKey` is provided and an agent with that key exists, the
    * entry is *updated* (baseUrl + token regenerated) — this is the
-   * dedup / re-registration path.  Without `agentKey` a fresh entry
-   * is created.
+   * dedup / re-registration path.  If agentKey is unknown but the
+   * same `baseUrl` already exists, that row is updated in place — the
+   * same machine re-registering from a fresh install. Without either
+   * match a fresh entry is created.
    */
   registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string };
   // ── sessions ──
@@ -102,6 +106,7 @@ export function createStorage(dataDir: string): Storage {
       );
 
       CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key);
+      CREATE INDEX IF NOT EXISTS manager_agents_baseUrl ON manager_agents(baseUrl);
 
       CREATE TABLE IF NOT EXISTS manager_sessions (
         token       TEXT PRIMARY KEY,
@@ -177,16 +182,42 @@ export function createStorage(dataDir: string): Storage {
     return row ? deserializeAgent(row) : undefined;
   }
 
+  /**
+   * Look up an agent by `baseUrl` — fallback dedup key for cases when
+   * the agent lost its `agentKey` (e.g. fresh install / wiped data dir).
+   * Same machine re-registering from scratch is treated as the same row.
+   */
+  function findAgentByBaseUrl(baseUrl: string): Agent | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = db()
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE baseUrl = ?')
+      .get(baseUrl);
+    return row ? deserializeAgent(row) : undefined;
+  }
+
   function registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string } {
-    // Re-registration: agent already has a key → update existing entry.
+    // Re-registration: prefer agentKey (stable across restarts).
     if (agentKey) {
       const existing = findAgentByKey(agentKey);
       if (existing) {
         const token = randomBytes(32).toString('hex');
-        db().prepare('UPDATE manager_agents SET baseUrl = ?, token = ? WHERE agent_key = ?')
-          .run(baseUrl, token, agentKey);
+        db().prepare(
+          'UPDATE manager_agents SET baseUrl = ?, token = ?, name = ? WHERE agent_key = ?',
+        ).run(baseUrl, token, name, agentKey);
         return { id: existing.id, token };
       }
+    }
+
+    // Fallback: same baseUrl already registered → treat as same machine
+    // even when agentKey is missing (fresh install, wiped data dir).
+    // Update in place: keep id stable, regenerate token, refresh name.
+    const sameUrl = findAgentByBaseUrl(baseUrl);
+    if (sameUrl) {
+      const token = randomBytes(32).toString('hex');
+      db().prepare(
+        'UPDATE manager_agents SET token = ?, name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key) WHERE id = ?',
+      ).run(token, name, agentKey ?? '', sameUrl.id);
+      return { id: sameUrl.id, token };
     }
 
     // First registration: create fresh.
@@ -264,6 +295,7 @@ export function createStorage(dataDir: string): Storage {
     addAgent,
     deleteAgent,
     findAgentByKey,
+    findAgentByBaseUrl,
     registerAgent,
     createSession,
     getSession,

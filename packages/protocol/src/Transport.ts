@@ -60,14 +60,14 @@ export interface Transport {
    * Permanently delete an already-exited session (row + log file).
    * For running sessions the server will return an error.
    */
-  deleteSession(ref: ServerRef, id: string): Promise<void>;
+  deleteSession(ref: ServerRef, id: string, agentId?: string): Promise<void>;
 
   /**
    * Bulk-delete all sessions whose last activity is older than
    * `olderThanHours` hours. Returns the count removed so the UI can
    * surface a "X zombies cleaned" toast.
    */
-  pruneSessions(ref: ServerRef, olderThanHours?: number): Promise<{ removed: number }>;
+  pruneSessions(ref: ServerRef, olderThanHours?: number, agentId?: string): Promise<{ removed: number }>;
 
   /** Resize the underlying PTY. */
   resizeSession(
