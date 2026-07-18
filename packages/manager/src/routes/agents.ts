@@ -26,6 +26,8 @@ const RegisterAgentSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.string().url(),
   registerToken: z.string().min(1),
+  /** Agent's persistent key — sent on re-registration for dedup. */
+  agentKey: z.string().optional(),
 });
 
 export function registerAgentRoutes(app: FastifyInstance, storage: Storage, cfg: ManagerConfig): void {
@@ -83,7 +85,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage, cfg:
       });
     }
 
-    const { id, token } = storage.registerAgent(parsed.data.name, parsed.data.baseUrl);
+    const { id, token } = storage.registerAgent(parsed.data.name, parsed.data.baseUrl, parsed.data.agentKey);
     return reply.code(201).send({ id, token });
   });
 

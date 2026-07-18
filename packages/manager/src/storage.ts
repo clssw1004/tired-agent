@@ -31,6 +31,8 @@ const Database = _sqlite.default ?? _sqlite;
  */
 export interface Agent {
   id: string;
+  /** Agent's own persistent identity — used for dedup on re-registration. */
+  agentKey: string;
   name: string;
   baseUrl: string;
   token: string;
@@ -54,7 +56,17 @@ export interface Storage {
   addAgent(name: string, baseUrl: string, token: string): { id: string };
   deleteAgent(id: string): void;
   // ── auto-register ──
-  registerAgent(name: string, baseUrl: string): { id: string; token: string };
+  /** Look up an agent by its persistent `agentKey` (for dedup). */
+  findAgentByKey(agentKey: string): Agent | undefined;
+  /**
+   * Register (or re-register) an agent.
+   *
+   * When `agentKey` is provided and an agent with that key exists, the
+   * entry is *updated* (baseUrl + token regenerated) — this is the
+   * dedup / re-registration path.  Without `agentKey` a fresh entry
+   * is created.
+   */
+  registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string };
   // ── sessions ──
   createSession(): { token: string; expiresAt: number };
   getSession(token: string): { expiresAt: number } | undefined;
@@ -81,12 +93,15 @@ export function createStorage(dataDir: string): Storage {
     _db.exec(`
       CREATE TABLE IF NOT EXISTS manager_agents (
         id          TEXT PRIMARY KEY,
+        agent_key   TEXT NOT NULL DEFAULT '',
         name        TEXT NOT NULL,
         baseUrl     TEXT NOT NULL,
         token       TEXT NOT NULL,
         enabled     INTEGER NOT NULL DEFAULT 1,
         createdAt   INTEGER NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key);
 
       CREATE TABLE IF NOT EXISTS manager_sessions (
         token       TEXT PRIMARY KEY,
@@ -103,6 +118,9 @@ export function createStorage(dataDir: string): Storage {
   async function init() {
     await mkdir(dataDir, { recursive: true });
     db(); // touch schema
+
+    // Migration: add agent_key column for databases from v0.1
+    try { _db.exec(`ALTER TABLE manager_agents ADD COLUMN agent_key TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   }
 
   // ── agents ──────────────────────────────────────────────────────────────
@@ -110,7 +128,7 @@ export function createStorage(dataDir: string): Storage {
   function listAgents(): Agent[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = db()
-      .prepare('SELECT id, name, baseUrl, token, enabled, createdAt FROM manager_agents ORDER BY createdAt ASC')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents ORDER BY createdAt ASC')
       .all();
     return rows.map(deserializeAgent);
   }
@@ -118,7 +136,7 @@ export function createStorage(dataDir: string): Storage {
   function getAgent(id: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE id = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE id = ?')
       .get(id);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -127,8 +145,8 @@ export function createStorage(dataDir: string): Storage {
     const id = randomUUID();
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, 1, ?)',
-    ).run(id, name, baseUrl, token, createdAt);
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    ).run(id, '', name, baseUrl, token, createdAt);
     return { id };
   }
 
@@ -138,14 +156,35 @@ export function createStorage(dataDir: string): Storage {
 
   // ── auto-register ───────────────────────────────────────────────────
 
-  function registerAgent(name: string, baseUrl: string): { id: string; token: string } {
-    const id = randomUUID();
+  function findAgentByKey(agentKey: string): Agent | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = db()
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE agent_key = ?')
+      .get(agentKey);
+    return row ? deserializeAgent(row) : undefined;
+  }
+
+  function registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string } {
+    // Re-registration: agent already has a key → update existing entry.
+    if (agentKey) {
+      const existing = findAgentByKey(agentKey);
+      if (existing) {
+        const token = randomBytes(32).toString('hex');
+        db().prepare('UPDATE manager_agents SET baseUrl = ?, token = ? WHERE agent_key = ?')
+          .run(baseUrl, token, agentKey);
+        return { id: existing.id, token };
+      }
+    }
+
+    // First registration: create fresh.
+    const newId = randomUUID();
     const token = randomBytes(32).toString('hex');
+    const agentKeyFinal = agentKey ?? '';
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, 1, ?)',
-    ).run(id, name, baseUrl, token, createdAt);
-    return { id, token };
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt);
+    return { id: newId, token };
   }
 
   // ── sessions ────────────────────────────────────────────────────────────
@@ -196,6 +235,7 @@ export function createStorage(dataDir: string): Storage {
   function deserializeAgent(r: any): Agent {
     return {
       id: r.id,
+      agentKey: r.agent_key ?? '',
       name: r.name,
       baseUrl: r.baseUrl,
       token: r.token,
@@ -210,6 +250,7 @@ export function createStorage(dataDir: string): Storage {
     getAgent,
     addAgent,
     deleteAgent,
+    findAgentByKey,
     registerAgent,
     createSession,
     getSession,
