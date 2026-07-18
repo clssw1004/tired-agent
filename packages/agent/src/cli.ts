@@ -21,9 +21,15 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-// Load .env from package root.
+// Load .env from package root (bundled defaults, lowest priority).
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: resolve(__dirname, '../.env') });
+
+// Load .env from the default data directory (user config).
+// This runs after the package .env so user values override bundled defaults.
+// dotenv does NOT override existing shell env vars, so shell env wins.
+const userEnvPath = join(homedir(), '.tiredagent', '.env');
+loadDotenv({ path: userEnvPath, override: true });
 
 import { main } from './index.js';
 import { type ServerConfig } from './config.js';

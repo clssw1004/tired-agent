@@ -8,12 +8,15 @@
 
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { homedir } from 'node:os';
 
 // Load .env when invoked directly (e.g. `node dist/index.js`).
 // When invoked via cli.ts, dotenv is already loaded — this is harmless.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: resolve(__dirname, '../.env') });
+// Also load user's .env from the default data directory.
+loadDotenv({ path: join(homedir(), '.tiredagent', '.env'), override: true });
 
 import { loadConfig, validateConfig } from './config.js';
 import type { ServerConfig } from './config.js';
