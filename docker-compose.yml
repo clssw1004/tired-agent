@@ -8,7 +8,6 @@ services:
       - CLSSW_MANAGER_HOST=0.0.0.0
       - CLSSW_MANAGER_PORT=8443
       - CLSSW_MANAGER_DATA=/data
-      - CLSSW_MANAGER_REGISTER_SECRET=${CLSSW_MANAGER_REGISTER_SECRET:-}
       - CORS_ORIGIN=*
     volumes:
       - manager-data:/data
