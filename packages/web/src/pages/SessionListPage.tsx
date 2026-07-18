@@ -24,6 +24,7 @@ export function SessionListPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [pruneInfo, setPruneInfo] = useState<number | null>(null);
+  const [lastLoaded, setLastLoaded] = useState<number>(0);
   // Modal-driven confirmation (replaces native confirm()/alert()).
   const [pending, setPending] = useState<
     | { kind: 'kill'; sessionId: string }
@@ -54,6 +55,7 @@ export function SessionListPage() {
       const list = await transport.listSessions(serverRef, agentId);
       setSessions(list);
       setError(null);
+      setLastLoaded(Date.now());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -66,6 +68,22 @@ export function SessionListPage() {
     const t = setInterval(load, 5000); // auto-refresh every 5s
     return () => clearInterval(t);
   }, [load]);
+
+  // Tick to refresh the "updated Xs ago" label without re-fetching.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const timeSinceLoaded = lastLoaded
+    ? (() => {
+        const s = Math.max(0, Math.floor((Date.now() - lastLoaded) / 1000));
+        if (s < 60) return `${s}s ago`;
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+        return `${Math.floor(s / 3600)}h ago`;
+      })()
+    : null;
 
   const handleKill = async (sessionId: string) => {
     if (!serverRef || !agentId) return;
@@ -169,17 +187,22 @@ export function SessionListPage() {
           </div>
         )}
 
-        <div className="toolbar" style={{ marginBottom: 16, gap: 6 }}>
+        <div className="toolbar session-toolbar" style={{ marginBottom: 16, gap: 6 }}>
           {(['all', 'starting', 'running', 'exited'] as StatusFilter[]).map((s) => (
             <button
               key={s}
-              className={statusFilter === s ? '' : 'btn-ghost'}
+              className={'filter-pill' + (statusFilter === s ? ' is-active' : '')}
               onClick={() => setStatusFilter(s)}
             >
-              {s} {counts[s] > 0 && <span style={{ opacity: 0.6 }}>({counts[s]})</span>}
+              {s} {counts[s] > 0 && <span className="filter-count">{counts[s]}</span>}
             </button>
           ))}
           <span style={{ flex: 1 }} />
+          {timeSinceLoaded && (
+            <span className="refresh-indicator" title={`Last refresh: ${new Date(lastLoaded).toLocaleTimeString()}`}>
+              {loading ? <span className="refresh-spinner" /> : '⟳'} {timeSinceLoaded}
+            </span>
+          )}
           <button
             className="btn-cancel"
             onClick={handlePrune}
