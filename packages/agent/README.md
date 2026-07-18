@@ -2,7 +2,7 @@
 
 > PTY session executor — run interactive CLI tools remotely.
 
-Part of the [tired-agent](https://github.com/cuiwe/tired-agent) ecosystem. This package runs on controlled machines and executes PTY sessions (bash, cmd, claude, aider, etc.). It is managed by a [tired-agent manager](https://www.npmjs.com/package/@tired-agent/manager) which proxies WebSocket-free access from a browser SPA.
+Part of the [tired-agent](https://github.com/clssw1004/tired-agent) ecosystem. This package runs on controlled machines and executes PTY sessions (bash, cmd, claude, aider, etc.). It is managed by a [tired-agent manager](https://www.npmjs.com/package/@tired-agent/manager) which proxies WebSocket-free access from a browser SPA.
 
 ## Install
 

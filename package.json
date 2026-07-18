@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "tired-agent — remote persistent interactive session system. Let your home PC work overtime, even while you're out.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clssw1004/tired-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clssw1004/tired-agent/issues"
+  },
+  "homepage": "https://github.com/clssw1004/tired-agent#readme",
   "workspaces": [
     "packages/protocol",
     "packages/agent",
