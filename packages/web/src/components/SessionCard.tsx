@@ -7,10 +7,10 @@ interface Props {
   onDelete?: () => void;
 }
 
-const STATUS_LABEL: Record<SessionStatus, { className: string }> = {
-  starting: { className: 'dot dot-starting' },
-  running: { className: 'dot dot-running' },
-  exited: { className: 'dot dot-exited' },
+const STATUS_BADGE: Record<SessionStatus, { className: string; label: string }> = {
+  starting: { className: 'badge badge-warn',  label: 'Starting' },
+  running:  { className: 'badge badge-ok',    label: 'Running'  },
+  exited:   { className: 'badge badge-dim',   label: 'Exited'   },
 };
 
 /** Human-friendly "X minutes ago" formatter for exited sessions. */
@@ -23,16 +23,16 @@ function timeSince(ts: number): string {
 }
 
 export function SessionCard({ session, onClick, onKill, onDelete }: Props) {
-  const status = STATUS_LABEL[session.status];
+  const badge = STATUS_BADGE[session.status];
   const exitedAgo =
     session.status === 'exited' && session.exitedAt ? timeSince(session.exitedAt) : null;
 
   return (
-    <div className="card card-clickable" onClick={onClick}>
+    <div className="card card-clickable session-card" onClick={onClick}>
       <div className="card-info">
         <div className="card-name">
-          <span className={status.className} />
           {session.label || session.cmd}
+          <span className={badge.className + ' session-badge'}>{badge.label}</span>
         </div>
         <div className="card-meta">
           {session.args?.length
@@ -44,13 +44,27 @@ export function SessionCard({ session, onClick, onKill, onDelete }: Props) {
             : `pid ${session.pid ?? '?'}`}
         </div>
       </div>
-      <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+      <div className="card-actions session-actions" onClick={(e) => e.stopPropagation()}>
         {session.status !== 'exited' && onKill && (
-          <button className="btn-danger" onClick={onKill}>Kill</button>
+          <button
+            type="button"
+            className="session-action-btn action-kill"
+            onClick={onKill}
+            aria-label="Kill session"
+          >
+            <span className="session-action-icon" aria-hidden>⏹</span>
+            <span>Kill</span>
+          </button>
         )}
         {session.status === 'exited' && onDelete && (
-          <button className="btn-cancel" onClick={onDelete} aria-label="Delete">
-            ✕
+          <button
+            type="button"
+            className="session-action-btn action-delete"
+            onClick={onDelete}
+            aria-label="Delete session log"
+          >
+            <span className="session-action-icon" aria-hidden>🗑</span>
+            <span>Delete</span>
           </button>
         )}
       </div>
