@@ -419,6 +419,50 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 .input-bar input:disabled { opacity: 0.5; }
 
+/* ── SpecialKeysBar — mobile-only row above InputBar ──────────────── */
+/* Sits just above the InputBar on phones/tablets. Hidden on desktop via
+   the breakpoint below so it never crowds the xterm view. */
+.special-keys {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(13,13,26,0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  /* 9 buttons rarely fit a portrait phone in one screen — let the bar
+     scroll horizontally so the user can swipe to reach later buttons. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* Hide the scrollbar on iOS / Android webviews; keep functional. */
+  scrollbar-width: none;
+}
+.special-keys::-webkit-scrollbar { display: none; }
+.special-key {
+  flex: 0 0 auto;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+}
+.special-key:active { transform: scale(0.96); background: rgba(51,154,240,0.18); }
+.special-key:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Hide on desktop — physical keyboard is available. */
+@media (min-width: 768px) {
+  .special-keys { display: none; }
+}
+
 @keyframes ct-pulse {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1;    }
