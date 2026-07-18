@@ -23,7 +23,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm ci
@@ -46,11 +45,7 @@ jobs:
           fi
 
       - name: Publish @tired-agent/protocol
-        run: npm publish -w @tired-agent/protocol
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w @tired-agent/protocol --provenance
 
       - name: Publish @tired-agent/agent
-        run: npm publish -w @tired-agent/agent
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w @tired-agent/agent --provenance
