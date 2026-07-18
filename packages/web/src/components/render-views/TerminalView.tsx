@@ -42,6 +42,14 @@ export interface TerminalHandle {
   sendInput: (text: string) => void;
   /** Move focus to the xterm canvas so the host's keyboard routes here. */
   focus: () => void;
+  /** Get the currently selected text in the terminal (empty string if none). */
+  getSelection: () => string;
+  /** Clear the current selection. */
+  clearSelection: () => void;
+  /** True if the viewport is currently pinned to the bottom of the scrollback. */
+  isAtBottom: () => boolean;
+  /** Scroll the viewport to the bottom of the scrollback. */
+  scrollToBottom: () => void;
 }
 
 interface Props {
@@ -51,10 +59,19 @@ interface Props {
   /** Fires for every keystroke translated by xterm. The host forwards these
    *  bytes to the PTY. Fires whether or not `disableStdin` is true. */
   onUserInput?: (data: string) => void;
+  /** Fires whenever the selection inside xterm changes. Receives the selected
+   *  text (empty if cleared). The host uses this to show a floating copy button
+   *  on mobile, where long-press selection has no native copy affordance. */
+  onSelectionChange?: (text: string) => void;
+  /** Fires when the user scrolls inside xterm. Receives `true` when the
+   *  viewport is pinned to the bottom, `false` when they've scrolled up.
+   *  The host uses this to show a "jump to latest" pill when streaming
+   *  output piles up off-screen. */
+  onScroll?: (atBottom: boolean) => void;
 }
 
 export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalView(
-  { className, onReady, onUserInput },
+  { className, onReady, onUserInput, onSelectionChange, onScroll },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,19 +79,36 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
   const fitRef = useRef<FitAddon | null>(null);
   const writeCallbacksRef = useRef<Set<() => void>>(new Set());
   const userInputCbRef = useRef<((data: string) => void) | undefined>(onUserInput);
+  const selectionCbRef = useRef<((text: string) => void) | undefined>(onSelectionChange);
+  const scrollCbRef = useRef<((atBottom: boolean) => void) | undefined>(onScroll);
 
-  // Keep callback ref fresh so terminal.onData always invokes the latest one
-  // without needing to detach/re-attach the subscription.
+  // Keep callback refs fresh so terminal.onData / onSelectionChange / onScroll
+  // always invoke the latest host handler without re-binding the xterm sub.
   userInputCbRef.current = onUserInput;
+  selectionCbRef.current = onSelectionChange;
+  scrollCbRef.current = onScroll;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    // Responsive fontSize — narrower viewports use smaller font so more
+    // columns fit. Mirrors styles.css breakpoints at 360 / 480 / 768 / 1200.
+    const computeFontSize = (w: number): number => {
+      if (w < 400) return 11;
+      if (w < 768) return 12;
+      if (w < 1200) return 13;
+      return 14;
+    };
+    const computeLineHeight = (fs: number): number =>
+      // Slightly looser at small sizes so descenders/glyphs don't crowd.
+      fs <= 11 ? 1.25 : fs <= 13 ? 1.18 : 1.15;
+
     const term = new Terminal({
       cols: 80,
       rows: 24,
-      fontSize: 13,
+      fontSize: computeFontSize(container.clientWidth),
+      lineHeight: computeLineHeight(computeFontSize(container.clientWidth)),
       fontFamily: 'ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace',
       theme: {
         background: 'transparent',
@@ -98,7 +132,19 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
     container.setAttribute('tabindex', '0');
 
     const tryFit = () => {
-      try { fit.fit(); } catch { /* container may be 0×0 briefly */ }
+      try {
+        // Re-evaluate fontSize when the container crosses a breakpoint
+        // (e.g. phone rotation, window resize past 768px). Without this,
+        // a 360px portrait phone keeps its 13px font even after the user
+        // opens a tablet landscape view.
+        const w = container.clientWidth;
+        const fs = computeFontSize(w);
+        if (fs !== term.options.fontSize) {
+          term.options.fontSize = fs;
+          term.options.lineHeight = computeLineHeight(fs);
+        }
+        fit.fit();
+      } catch { /* container may be 0×0 briefly */ }
     };
 
     const raf = requestAnimationFrame(() => {
@@ -124,6 +170,28 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       }
     });
 
+    // Selection change — host renders a floating copy FAB on mobile.
+    const selectionSub = term.onSelectionChange(() => {
+      const cb = selectionCbRef.current;
+      if (!cb) return;
+      try { cb(term.getSelection() ?? ''); } catch { /* ignore */ }
+    });
+
+    // Scroll — host decides whether to show a "jump to latest" pill when
+    // streaming output piles up off-screen.
+    const computeAtBottom = (): boolean => {
+      const buf = term.buffer.active;
+      // viewportY is the row at the top of the visible window; if the
+      // bottom of the viewport has reached the end of the buffer, we are
+      // pinned. Allow a 1-row slop for sub-pixel rounding.
+      return buf.viewportY + term.rows >= buf.length - 1;
+    };
+    const scrollSub = term.onScroll(() => {
+      const cb = scrollCbRef.current;
+      if (!cb) return;
+      try { cb(computeAtBottom()); } catch { /* ignore */ }
+    });
+
     termRef.current = term;
     fitRef.current = fit;
     onReady?.();
@@ -133,6 +201,8 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       ro.disconnect();
       writeSub.dispose();
       inputSub.dispose();
+      selectionSub.dispose();
+      scrollSub.dispose();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -170,6 +240,15 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       const textarea = (term as unknown as { _core?: { textarea?: HTMLTextAreaElement } })._core?.textarea;
       if (textarea) textarea.focus();
     },
+    getSelection: () => termRef.current?.getSelection() ?? '',
+    clearSelection: () => { termRef.current?.clearSelection(); },
+    isAtBottom: () => {
+      const term = termRef.current;
+      if (!term) return true;
+      const buf = term.buffer.active;
+      return buf.viewportY + term.rows >= buf.length - 1;
+    },
+    scrollToBottom: () => { termRef.current?.scrollToBottom(); },
   }), []);
 
   return <div ref={containerRef} className={'terminal-view ' + (className ?? '')} />;

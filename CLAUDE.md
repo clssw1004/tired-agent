@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+## 注意事项：
+* **全程使用中文对话**
+* 升级操作只能在main分支进行，若当前不在main分支，则需要切到最新的main分支（先切到main，再fetch 再 rebase 到最新的main）
+* 修BUG，开发新需求务必要从最新的main分支切出一个新分支进行开发（分支名称：${修改类型(feat/fix...)}/内容相关-${日期(年月日)}）
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Branch strategy

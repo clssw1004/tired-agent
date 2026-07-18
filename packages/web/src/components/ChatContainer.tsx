@@ -29,6 +29,7 @@ import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';
 import { InterventionBar } from './InterventionBar';
 import { InputBar } from './InputBar';
+import { SpecialKeysBar } from './SpecialKeysBar';
 
 interface Props {
   serverRef: ServerRef;
@@ -67,6 +68,10 @@ export function ChatContainer({
   const [connected, setConnected] = useState(false);
   const [transportError, setTransportError] = useState<string | null>(null);
   const [termReady, setTermReady] = useState(false);
+  const [selection, setSelection] = useState('');
+  const [copyFlash, setCopyFlash] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   const termRef = useRef<TerminalHandle>(null);
   const rendererRef = useRef<AgentRenderer>(new GenericPtyRenderer());
@@ -96,6 +101,35 @@ export function ChatContainer({
       setTransportError((err as Error).message);
     }
   }, [disabled, serverRef, sessionId, agentId]);
+
+  // ── Copy selected text from xterm to clipboard. Mobile Safari doesn't
+  //    surface a copy button on long-press selection by default, so we
+  //    show our own floating action button whenever a non-empty selection
+  //    exists in the terminal.
+  const copySelection = useCallback(async () => {
+    const text = termRef.current?.getSelection() ?? '';
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older WebViews: textarea + execCommand
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopyFlash(true);
+      try { navigator.vibrate?.(10); } catch { /* iOS no-op */ }
+      window.setTimeout(() => setCopyFlash(false), 900);
+    } catch { /* ignore — user can still long-press to copy manually */ }
+    termRef.current?.clearSelection();
+    setSelection('');
+  }, []);
 
   // Connect, replay history, subscribe to live chunks.
   useEffect(() => {
@@ -134,7 +168,12 @@ export function ChatContainer({
             const text = decodeText(c.data);
             if (!text) return;
             lastChunkAtRef.current = Date.now();
+            // Respect manual scroll: if the user has scrolled up to read
+            // history, don't yank them back to the bottom on each chunk —
+            // the "jump to latest" pill lets them return when ready.
+            const wasAtBottom = termRef.current?.isAtBottom() ?? true;
             termRef.current?.write(text);
+            if (wasAtBottom) termRef.current?.scrollToBottom();
             renderer.processChunk(text, {
               session: sessionRef.current,
               streaming: true,
@@ -170,6 +209,28 @@ export function ChatContainer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionCmd, sessionArgs.join('|'), connected]);
 
+  // Busy detection — the underlying CLI is actively working (spinner frames,
+  // Claude "esc to interrupt" hint, etc.). We dim the InputBar in this state
+  // so the user understands they can't type yet, and we keep SpecialKeysBar
+  // fully active so Ctrl+C remains a one-tap interrupt.
+  useEffect(() => {
+    if (!termReady) return;
+    const handle = termRef.current;
+    if (!handle) return;
+    const SPINNER = /[●✻✽✶✢⠂⠐⠈⠘⠸⠰⠠⠄·*]/;
+    const INTERRUPT = /esc to interrupt|press esc to interrupt/i;
+    const check = () => {
+      const lines = handle.getLastLines(6).map((l) => l.trim()).filter(Boolean);
+      let next = false;
+      for (const line of lines) {
+        if (SPINNER.test(line[0] ?? '') || INTERRUPT.test(line)) { next = true; break; }
+      }
+      setBusy((prev) => prev === next ? prev : next);
+    };
+    check();
+    return handle.onWrite(check);
+  }, [termReady]);
+
   // ── Status derivation ──────────────────────────────────────────────────
   const typing = lastChunkAtRef.current > 0
     && Date.now() - lastChunkAtRef.current < TYPING_TIMEOUT_MS;
@@ -184,7 +245,7 @@ export function ChatContainer({
     : 'live';
 
   return (
-    <div className="chat-panel">
+    <div className={'chat-panel' + (busy ? ' is-busy' : '')}>
       <header className="chat-header">
         {onBack && (
           <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
@@ -216,7 +277,34 @@ export function ChatContainer({
           ref={termRef}
           onReady={() => setTermReady(true)}
           onUserInput={(data) => void writeBytes(data)}
+          onSelectionChange={(text) => setSelection(text)}
+          onScroll={(ab) => setAtBottom(ab)}
         />
+        {selection && (
+          <button
+            type="button"
+            className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
+            onClick={(e) => { e.stopPropagation(); void copySelection(); }}
+            aria-label="Copy selection"
+          >
+            <span aria-hidden>📋</span>
+            <span>{copyFlash ? '已复制' : '复制'}</span>
+          </button>
+        )}
+        {!atBottom && (
+          <button
+            type="button"
+            className="jump-to-bottom"
+            onClick={(e) => {
+              e.stopPropagation();
+              termRef.current?.scrollToBottom();
+              setAtBottom(true);
+            }}
+            aria-label="Jump to latest output"
+          >
+            ↓ 跳到最新
+          </button>
+        )}
       </div>
 
       <InterventionBar
@@ -231,7 +319,9 @@ export function ChatContainer({
         placeholder={
           disabled
             ? 'Session has exited'
-            : '输入框 — 手机键盘直通'
+            : busy
+              ? 'Claude 处理中…'
+              : '输入框 — 手机键盘直通'
         }
         onChange={(data) => void writeBytes(data)}
       />
