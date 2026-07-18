@@ -97,8 +97,8 @@ export function LoginPage() {
               />
             </div>
 
-            <button type="submit" disabled={auth.status === 'logging-in'}>
-              {auth.status === 'logging-in' ? 'Connecting…' : 'Connect'}
+            <button type="submit" disabled={(auth.status as string) === 'logging-in'}>
+              {(auth.status as string) === 'logging-in' ? 'Connecting…' : 'Connect'}
             </button>
           </form>
 

@@ -23,7 +23,7 @@ export function Skeleton({ height = 16, width = '100%', radius = 6, className }:
   return (
     <span
       className={'skeleton' + (className ? ` ${className}` : '')}
-      style={{ height, width, borderRadius: radius }}
+      style={{ height: `${height}px`, width, borderRadius: `${radius}px` }}
       aria-hidden
     />
   );
@@ -39,7 +39,7 @@ export function SkeletonSessionCard() {
         <Skeleton height={11} width="70%" className="skeleton-meta" />
       </div>
       <div className="card-actions">
-        <Skeleton height={28} width={56} radius={8} />
+        <Skeleton height={28} width="56px" radius={8} />
       </div>
     </div>
   );
@@ -54,8 +54,8 @@ export function SkeletonServerCard() {
         <Skeleton height={11} width="55%" className="skeleton-meta" />
       </div>
       <div className="card-actions">
-        <Skeleton height={28} width={56} radius={8} />
-        <Skeleton height={28} width={56} radius={8} />
+        <Skeleton height={28} width="56px" radius={8} />
+        <Skeleton height={28} width="56px" radius={8} />
       </div>
     </div>
   );
