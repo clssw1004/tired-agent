@@ -108,7 +108,7 @@ Click **Generate registration command** — the page creates a one-liner that
 installs the agent and registers it with your manager:
 
 ```bash
-npm install -g @tired-agent/agent && tired-agent start --register "..."
+npm install -g @tired-agent/agent && tired-agent start --register "..." --daemon
 ```
 
 Paste that on any machine with Node.js. The agent:
@@ -130,7 +130,7 @@ If the agent is already running somewhere, paste its URL and token into the
 ## 3. Agent CLI
 
 ```bash
-tired-agent start [options]       # Start the daemon (with optional auto-register)
+tired-agent start [options]       # Start the daemon (add --daemon to background it)
 tired-agent status                # Show registration state + health
 tired-agent stop                  # Stop the daemon
 tired-agent restart               # Restart the daemon

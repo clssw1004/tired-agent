@@ -58,7 +58,7 @@ export function SessionListPage() {
     if (!serverRef) return;
     if (!confirm('Delete this (already exited) session? Log file is removed too.')) return;
     try {
-      await transport.deleteSession(serverRef, sessionId);
+      await transport.deleteSession(serverRef, sessionId, agentId);
       await load();
     } catch (e) {
       alert((e as Error).message);
@@ -70,7 +70,7 @@ export function SessionListPage() {
     if (!confirm('Drop all sessions whose last activity is older than 24 hours?')) return;
     setLoading(true);
     try {
-      const r = await transport.pruneSessions(serverRef, 24);
+      const r = await transport.pruneSessions(serverRef, 24, agentId);
       setPruneInfo(r.removed);
       await load();
     } catch (e) {

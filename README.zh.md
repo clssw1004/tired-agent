@@ -107,7 +107,7 @@ Manager 启动后，登录 Web 界面，进入 **Onboarding** 页面（`/#/onboa
 点击 **Generate registration command**——页面生成一条命令，安装 agent 并注册到你的 Manager：
 
 ```bash
-npm install -g @tired-agent/agent && tired-agent start --register "..."
+npm install -g @tired-agent/agent && tired-agent start --register "..." --daemon
 ```
 
 在任何有 Node.js 的机器上粘贴执行。Agent 会自动：

@@ -250,11 +250,11 @@ export class HttpSseTransport implements Transport {
     await checkOk(res, 'killSession');
   }
 
-  async deleteSession(ref: ServerRef, id: string): Promise<void> {
+  async deleteSession(ref: ServerRef, id: string, agentId?: string): Promise<void> {
     // Same endpoint as killSession — server distinguishes exited vs running
     // and routes to hard-delete vs SIGKILL respectively.
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/${encodeURIComponent(id)}`,
+      this.sessionUrl(ref, id, '', agentId),
       { method: 'DELETE', headers: authHeaders(ref) },
     );
     await checkOk(res, 'deleteSession');
@@ -263,9 +263,14 @@ export class HttpSseTransport implements Transport {
   async pruneSessions(
     ref: ServerRef,
     olderThanHours = 24,
+    agentId?: string,
   ): Promise<{ removed: number }> {
+    const base = ensureBaseUrl(ref);
+    const path = agentId
+      ? `${base}/v1/agents/${encodeURIComponent(agentId)}/sessions/prune`
+      : `${base}/v1/sessions/prune`;
     const res = await this.fetchImpl(
-      `${ensureBaseUrl(ref)}/v1/sessions/prune?olderThanHours=${olderThanHours}`,
+      `${path}?olderThanHours=${olderThanHours}`,
       { method: 'DELETE', headers: authHeaders(ref) },
     );
     await checkOk(res, 'pruneSessions');

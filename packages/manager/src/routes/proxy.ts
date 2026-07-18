@@ -126,6 +126,16 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
     },
   );
 
+  // ── Prune stale sessions ───────────────────────────────────────────
+  app.delete<{ Params: { aid: string } }>(
+    '/v1/agents/:aid/sessions/prune',
+    async (req, reply) => {
+      const queryString = req.url.split('?')[1] ?? '';
+      const upstreamPath = `/v1/sessions/prune${queryString ? `?${queryString}` : ''}`;
+      return proxyJson(storage, req.params.aid, 'DELETE', upstreamPath, undefined, reply);
+    },
+  );
+
   app.post<{ Params: { aid: string; sid: string } }>(
     '/v1/agents/:aid/sessions/:sid/input',
     async (req, reply) => {
