@@ -53,18 +53,32 @@ button, .btn {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s;
+  min-height: 40px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+  transition: opacity 0.15s, transform 0.1s, background 0.15s;
 }
-button:hover { opacity: 0.85; }
+button:hover { opacity: 0.88; }
+button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-ghost { background: transparent; color: var(--text-dim); padding: 6px 10px; font-weight: 400; }
-.btn-danger { background: #2a1a1a; color: var(--err); }
-.btn-cancel { background: #1f1f35; color: var(--text-dim); }
+.btn-ghost { background: transparent; color: var(--text-dim); padding: 6px 12px; font-weight: 500; }
+.btn-ghost:hover { color: var(--text); }
+.btn-danger { background: rgba(255,107,107,0.18); color: #ffb3b3; border: 1px solid rgba(255,107,107,0.4); }
+.btn-danger:hover { background: rgba(255,107,107,0.26); }
+.btn-cancel { background: var(--bg-input); color: var(--text-dim); border: 1px solid var(--border); }
+.btn-cancel:hover { background: var(--bg-elev); color: var(--text); }
+@media (hover: none) {
+  /* Apple HIG: 44 pt minimum touch target. We were at 40, bump to 44 on
+     touch devices. Buttons get slightly chunkier on phones but the
+     trade-off for fewer mis-taps is worth it. */
+  button, .btn { min-height: 44px; }
+}
 
 input, textarea, select {
   width: 100%;
@@ -1004,8 +1018,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .app-nav-link {
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 14px;
   border-radius: 8px;
   color: var(--text-dim);
   font-size: 13px;
@@ -1019,6 +1033,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  -webkit-tap-highlight-color: transparent;
 }
 .app-nav-link:hover { color: var(--text); background: rgba(255,255,255,0.04); text-decoration: none; }
 .app-nav-link.active { color: var(--text); background: var(--bg-input); }
@@ -1068,10 +1083,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .onboarding-tab {
   background: transparent;
   color: var(--text-dim);
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 10px 18px;
+  border-radius: 8px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
+  min-height: 40px;
+  -webkit-tap-highlight-color: transparent;
 }
 .onboarding-tab:hover { color: var(--text); }
 .onboarding-tab.active {
