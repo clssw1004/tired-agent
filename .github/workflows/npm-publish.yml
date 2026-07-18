@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +45,11 @@ jobs:
           fi
 
       - name: Publish @tired-agent/protocol
-        run: npm publish -w @tired-agent/protocol --provenance
+        run: npm publish -w @tired-agent/protocol
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @tired-agent/agent
-        run: npm publish -w @tired-agent/agent --provenance
+        run: npm publish -w @tired-agent/agent
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
