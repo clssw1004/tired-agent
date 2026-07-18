@@ -18,6 +18,10 @@ export interface ServerConfig {
   sseFormat: 'base64' | 'hex';
   /** When true, logs a hex+ASCII dump of every input/output byte stream. */
   sseDebugLog: boolean;
+  /** Agent name for manager registration. */
+  name: string;
+  /** Base64-encoded registration string for manager auto-registration. */
+  registerString: string | null;
 }
 
 function parseInt10(value: string | undefined, fallback: number): number {
@@ -48,6 +52,13 @@ function parseArgs(argv: string[]): Partial<ServerConfig> {
       case '-d':
         if (next) { out.dataDir = resolve(next); i++; }
         break;
+      case '--name':
+      case '-n':
+        if (next) { out.name = next; i++; }
+        break;
+      case '--register':
+        if (next) { out.registerString = next; i++; }
+        break;
     }
   }
   return out;
@@ -64,6 +75,8 @@ export function loadConfig(argv: string[]): ServerConfig {
     dataDir: cli.dataDir ?? resolve(env.CLSSW_DATA ?? './data'),
     sseFormat: env['CLSSW_SSE_FORMAT'] === 'hex' ? 'hex' : 'base64',
     sseDebugLog: env['CLSSW_DEBUG_SSE'] === '1',
+    name: cli.name ?? env.CLSSW_AGENT_NAME ?? '',
+    registerString: cli.registerString ?? env.CLSSW_REGISTER ?? null,
   };
 }
 

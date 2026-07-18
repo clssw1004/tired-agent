@@ -16,11 +16,38 @@ import { SessionManager } from './session/manager.js';
 import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
 import { log } from './util/log.js';
+import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 
 async function main(argv: string[]) {
   const cfg = loadConfig(argv);
   validateConfig(cfg);
+
+  // ── Auto-register with Manager if configured ───────────────────
+  if (cfg.registerString) {
+    try {
+      log.info('Registering with Manager…');
+      const creds = await getOrRegisterCredentials(cfg);
+      if (creds) {
+        cfg.token = creds.token;
+        log.info({ agentId: creds.id }, 'Registration complete');
+      }
+    } catch (err) {
+      log.error({ err }, 'Registration failed');
+      // Non-fatal: the agent will still start with its configured token.
+    }
+  } else {
+    // Check for previously saved credentials (from a prior registration).
+    try {
+      const creds = await getOrRegisterCredentials(cfg);
+      if (creds) {
+        cfg.token = creds.token;
+        log.debug('Loaded agent credentials from file');
+      }
+    } catch {
+      // Ignore — will use configured token.
+    }
+  }
 
   const storage = createStorage({
     kind: (process.env['STORAGE_KIND'] as StorageKind) ?? 'sqlite',

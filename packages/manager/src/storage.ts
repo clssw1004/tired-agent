@@ -53,6 +53,8 @@ export interface Storage {
   getAgent(id: string): Agent | undefined;
   addAgent(name: string, baseUrl: string, token: string): { id: string };
   deleteAgent(id: string): void;
+  // ── auto-register ──
+  registerAgent(name: string, baseUrl: string): { id: string; token: string };
   // ── sessions ──
   createSession(): { token: string; expiresAt: number };
   getSession(token: string): { expiresAt: number } | undefined;
@@ -134,6 +136,18 @@ export function createStorage(dataDir: string): Storage {
     db().prepare('DELETE FROM manager_agents WHERE id = ?').run(id);
   }
 
+  // ── auto-register ───────────────────────────────────────────────────
+
+  function registerAgent(name: string, baseUrl: string): { id: string; token: string } {
+    const id = randomUUID();
+    const token = randomBytes(32).toString('hex');
+    const createdAt = Date.now();
+    db().prepare(
+      'INSERT INTO manager_agents (id, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, 1, ?)',
+    ).run(id, name, baseUrl, token, createdAt);
+    return { id, token };
+  }
+
   // ── sessions ────────────────────────────────────────────────────────────
 
   function createSession(): { token: string; expiresAt: number } {
@@ -196,6 +210,7 @@ export function createStorage(dataDir: string): Storage {
     getAgent,
     addAgent,
     deleteAgent,
+    registerAgent,
     createSession,
     getSession,
     deleteSession,
