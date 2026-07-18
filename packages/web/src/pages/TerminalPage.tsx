@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Session } from '@tired-agent/protocol';
+import type { ServerRef, Session } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { ChatContainer } from '../components/ChatContainer';
@@ -13,20 +13,24 @@ export function TerminalPage() {
   // The active agent is what we're proxying to through the Manager.
   const agentId = server?.agentId;
 
+  // Memoize the ServerRef — see SessionListPage for the rationale.
+  const serverRef = useMemo<ServerRef | null>(
+    () => (server
+      ? { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token }
+      : null),
+    [server],
+  );
+
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!server || !sid || !agentId) return;
+    if (!serverRef || !sid || !agentId) return;
     transport
-      .getSession(
-        { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token },
-        sid,
-        agentId,
-      )
+      .getSession(serverRef, sid, agentId)
       .then(setSession)
       .catch((e) => setError((e as Error).message));
-  }, [server, sid, agentId]);
+  }, [serverRef, sid, agentId]);
 
   if (!server) {
     return (
@@ -50,19 +54,14 @@ export function TerminalPage() {
 
   return (
     <ChatContainer
-      serverRef={{
-        id: server.id,
-        name: server.name,
-        baseUrl: server.baseUrl,
-        token: server.token,
-      }}
+      serverRef={serverRef ?? { id: '', name: '', baseUrl: '', token: '' }}
       agentId={agentId ?? ''}
       sessionId={sid!}
       sessionStatus={session?.status ?? 'starting'}
       sessionLabel={session?.label || session?.cmd || '…'}
       sessionCmd={session?.cmd ?? ''}
       sessionArgs={session?.args ?? []}
-      onBack={() => navigate(`/servers/${server.id}`)}
+      onBack={() => server && navigate(`/servers/${server.id}`)}
     />
   );
 }
