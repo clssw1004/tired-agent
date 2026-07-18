@@ -6,6 +6,7 @@ import { transport } from '../api/transport';
 import { SessionCard } from '../components/SessionCard';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
+import { SkeletonSessionCard } from '../components/Skeleton';
 
 type StatusFilter = 'all' | SessionStatus;
 
@@ -48,12 +49,15 @@ export function SessionListPage() {
 
   const load = useCallback(async () => {
     if (!serverRef || !agentId) return;
+    setLoading(true);
     try {
       const list = await transport.listSessions(serverRef, agentId);
       setSessions(list);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, [serverRef, agentId]);
 
@@ -186,7 +190,15 @@ export function SessionListPage() {
           </button>
         </div>
 
-        {visible.length === 0 && !error && (
+        {visible.length === 0 && !error && loading && (
+          <>
+            <SkeletonSessionCard />
+            <SkeletonSessionCard />
+            <SkeletonSessionCard />
+          </>
+        )}
+
+        {visible.length === 0 && !error && !loading && (
           <div className="empty">
             <div className="empty-icon">⌨️</div>
             <div className="empty-text">
