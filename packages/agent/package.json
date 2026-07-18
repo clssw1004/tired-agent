@@ -4,6 +4,7 @@
   "description": "tired-agent agent — PTY session executor (no web UI). Run interactive CLI tools remotely.",
   "type": "module",
   "main": "./dist/index.js",
+  "publishConfig": { "access": "public" },
   "bin": {
     "tired-agent": "./dist/cli.js"
   },
@@ -22,7 +23,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
-    "@tired-agent/protocol": "*",
+    "@tired-agent/protocol": "^0.1.0",
     "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
