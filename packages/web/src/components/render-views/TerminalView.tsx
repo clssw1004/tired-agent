@@ -26,7 +26,7 @@
  * buffer, so the user can scroll back through past output.
  */
 
-import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -88,9 +88,16 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
   selectionCbRef.current = onSelectionChange;
   scrollCbRef.current = onScroll;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Belt-and-braces: clear any leftover xterm DOM from a previous mount.
+    // React should have disposed the old term before this useLayoutEffect
+    // runs, but on route re-entry the cleanup can race with the new mount
+    // and stale .xterm-host/.xterm rows briefly remain in the DOM, holding
+    // their old (wide) inline `style.width` values.
+    while (container.firstChild) container.removeChild(container.firstChild);
 
     // Responsive fontSize — narrower viewports use smaller font so more
     // columns fit. Mirrors styles.css breakpoints at 360 / 480 / 768 / 1200.
@@ -104,8 +111,18 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       // Slightly looser at small sizes so descenders/glyphs don't crowd.
       fs <= 11 ? 1.25 : fs <= 13 ? 1.18 : 1.15;
 
+    // Initial cols estimate based on container width. xterm requires an
+    // explicit cols/rows at construction time, and if we pass 80 on a
+    // 360 px portrait phone, the canvas renders 528 px wide BEFORE the
+    // first fit() runs and pushes the page into a horizontal scrollbar.
+    // ~7 px per cell (matches our 11–14 px font sizes at default density)
+    // is a tight enough estimate that fit() on the next animation frame
+    // only needs to nudge by 1–2 cols.
+    const initialW = container.clientWidth || 360;
+    const initialCols = Math.max(20, Math.min(140, Math.floor(initialW / 7)));
+
     const term = new Terminal({
-      cols: 80,
+      cols: initialCols,
       rows: 24,
       fontSize: computeFontSize(container.clientWidth),
       lineHeight: computeLineHeight(computeFontSize(container.clientWidth)),
@@ -147,6 +164,10 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       } catch { /* container may be 0×0 briefly */ }
     };
 
+    // Synchronous first fit — useLayoutEffect already runs before paint,
+    // so clientWidth is correct here. RAF double-fit catches any post-
+    // mount layout shifts (e.g. fonts loading and changing char metrics).
+    tryFit();
     const raf = requestAnimationFrame(() => {
       tryFit();
       requestAnimationFrame(tryFit);

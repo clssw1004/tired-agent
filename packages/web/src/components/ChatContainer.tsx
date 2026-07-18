@@ -313,6 +313,11 @@ export function ChatContainer({
         onResponse={(text) => void writeBytes(text)}
       />
 
+      <SpecialKeysBar
+        disabled={disabled}
+        onKey={(bytes) => void writeBytes(bytes)}
+      />
+
       <InputBar
         disabled={disabled}
         sending={false}
