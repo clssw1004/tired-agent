@@ -1,0 +1,20 @@
+services:
+  manager:
+    build:
+      context: .
+      dockerfile: packages/manager/Dockerfile
+    ports:
+      - "${MANAGER_PORT:-8443}:8443"
+    environment:
+      - CLSSW_MANAGER_TOKEN=${CLSSW_MANAGER_TOKEN:?Please set CLSSW_MANAGER_TOKEN in .env or environment}
+      - CLSSW_MANAGER_HOST=0.0.0.0
+      - CLSSW_MANAGER_PORT=8443
+      - CLSSW_MANAGER_DATA=/data
+      - CLSSW_MANAGER_REGISTER_SECRET=${CLSSW_MANAGER_REGISTER_SECRET:-}
+      - CORS_ORIGIN=*
+    volumes:
+      - manager-data:/data
+    restart: unless-stopped
+
+volumes:
+  manager-data:
