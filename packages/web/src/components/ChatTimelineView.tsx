@@ -181,6 +181,10 @@ function TimelineItem({ content, expandedTool, onToggleTool, copyFlash, onCopyCo
       );
 
     case 'streamEvent':
+      // "思考中…" comes from thinking blocks — show animated indicator.
+      if (content.text === '思考中…' || content.text.includes('思考')) {
+        return <ThinkingIndicator text={content.text} />;
+      }
       return <StreamingText text={content.text} />;
 
     case 'status':
@@ -272,6 +276,7 @@ function ToolUseCard({
   onToggle: () => void;
 }) {
   const statusIcon = completed ? '✔' : '⏳';
+  const statusClass = completed ? 'done' : 'pending';
 
   return (
     <div className={'tool-use-card' + (completed ? ' is-completed' : '')}>
@@ -282,7 +287,7 @@ function ToolUseCard({
         aria-expanded={isExpanded}
       >
         <span className="tool-use-icon">{isExpanded ? '▼' : '▶'}</span>
-        <span className="tool-use-status">{statusIcon}</span>
+        <span className={'tool-use-status-icon ' + statusClass}>{statusIcon}</span>
         <span className="tool-use-name">{name}</span>
       </button>
 
@@ -311,19 +316,39 @@ function ToolResultCard({ content, isError }: { content: string; isError: boolea
 function StreamingText({ text }: { text: string }) {
   return (
     <div className="streaming-text">
-      <span>{text}</span>
+      <span className="streaming-text-content">{text}</span>
       <span className="streaming-cursor">▊</span>
+    </div>
+  );
+}
+
+/** Thinking indicator — animated dots. */
+function ThinkingIndicator({ text }: { text?: string }) {
+  return (
+    <div className="thinking-indicator">
+      <span className="thinking-text">{text || '思考中'}</span>
+      <span className="thinking-dots">
+        <span className="thinking-dot" />
+        <span className="thinking-dot" />
+        <span className="thinking-dot" />
+      </span>
     </div>
   );
 }
 
 /** Status indicator — thinking, working, done, error. */
 function StatusIndicator({ status, text }: { status: string; text: string }) {
-  const icon = status === 'thinking' ? '⟳' : status === 'error' ? '✕' : status === 'done' ? '✔' : '●';
+  const icon = status === 'thinking' ? '' : status === 'error' ? '✕' : status === 'done' ? '✔' : '●';
   return (
     <div className={'status-indicator status-' + status}>
-      <span className="status-icon">{icon}</span>
-      <span className="status-text">{text}</span>
+      {status === 'thinking' ? (
+        <ThinkingIndicator text={text} />
+      ) : (
+        <>
+          <span className="status-icon">{icon}</span>
+          <span className="status-text">{text}</span>
+        </>
+      )}
     </div>
   );
 }
