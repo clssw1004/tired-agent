@@ -107,17 +107,15 @@ export class ClaudeRenderer implements AgentRenderer {
   }
 
   private _parseLine(line: string): void {
-    if (line[0] !== '{') {
-      this._contents.push({ type: 'text', text: line });
-      return;
-    }
+    // Only process JSON lines — all non-JSON output (hook stdout, etc.)
+    // is discarded. Claude's structured output is purely NDJSON.
+    if (line[0] !== '{') return;
 
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(line) as Record<string, unknown>;
     } catch {
-      this._contents.push({ type: 'text', text: line });
-      return;
+      return; // skip malformed JSON silently
     }
 
     switch (event.type) {
@@ -252,6 +250,11 @@ export class ClaudeRenderer implements AgentRenderer {
     if (this._contents.length > 0) {
       return { contents: this._contents, displayMode: 'chat' };
     }
+  }
+
+  /** Add a user message to the timeline (called optimistically on send). */
+  addUserMessage(text: string): void {
+    this._contents.push({ type: 'userMessage', text });
   }
 
   getContents(): StructuredContent[] { return this._contents; }

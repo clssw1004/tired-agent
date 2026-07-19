@@ -153,8 +153,9 @@ export function ClaudeChatView({
     if (!text.trim() || !connected) return;
     const content = text.trim();
 
-    // Add user message to timeline immediately.
-    setContents(prev => [...prev, { type: 'userMessage', text: content }]);
+    // Add user message to timeline immediately (via renderer so it persists).
+    rendererRef.current.addUserMessage(content);
+    setContents([...rendererRef.current.getContents()]);
     setInputText('');
     setStreaming(true);
 
