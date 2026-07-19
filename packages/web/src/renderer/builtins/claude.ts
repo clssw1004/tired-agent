@@ -103,7 +103,6 @@ export class ClaudeRenderer implements AgentRenderer {
 
   private _parseLine(line: string): void {
     if (line[0] !== '{') {
-      // Non-JSON: CLI banner or stray text.
       this._contents.push({ type: 'text', text: line });
       return;
     }
@@ -121,7 +120,7 @@ export class ClaudeRenderer implements AgentRenderer {
         this._handleAssistant(event as unknown as ClaudeAssistantEvent);
         break;
       case 'user':
-        // User events contain tool results — skip (we already have the toolUse).
+        this._handleUser(event as unknown as ClaudeUserEvent);
         break;
       case 'result':
         this._handleResult(event as unknown as ClaudeResultEvent);
@@ -130,7 +129,6 @@ export class ClaudeRenderer implements AgentRenderer {
         // System events (init, hooks, etc.) — silently ignore.
         break;
       default:
-        // Unknown — ignore (forward compat).
         break;
     }
   }
@@ -178,14 +176,8 @@ export class ClaudeRenderer implements AgentRenderer {
             completed: false,
           });
           break;
-        case 'tool_result':
-          this._contents.push({
-            type: 'toolResult',
-            toolUseId: block.tool_use_id,
-            content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-            isError: block.is_error ?? false,
-          });
-          break;
+        // tool_result blocks come in user events, not assistant events.
+        // See _handleUser() for tool_result handling.
       }
     }
 
@@ -199,7 +191,43 @@ export class ClaudeRenderer implements AgentRenderer {
     }
   }
 
+  /**
+   * Handle user events — these contain tool results echoed back from Claude's
+   * tool execution. Match each tool_result with the corresponding toolUse to
+   * mark it completed.
+   */
+  private _handleUser(ev: ClaudeUserEvent): void {
+    if (!ev.message?.content) return;
+
+    for (const block of ev.message.content) {
+      if (block.type === 'tool_result') {
+        const toolUseId = block.tool_use_id;
+        // Find the corresponding toolUse and mark it completed + add result.
+        for (const c of this._contents) {
+          if (c.type === 'toolUse' && c.toolUseId === toolUseId) {
+            c.completed = true;
+          }
+        }
+        this._contents.push({
+          type: 'toolResult',
+          toolUseId,
+          content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+          isError: block.is_error ?? false,
+        });
+      }
+    }
+  }
+
   private _handleResult(ev: ClaudeResultEvent): void {
+    // Show stop reason if the turn ended abnormally.
+    if (ev.subtype === 'error' || ev.is_error) {
+      this._contents.push({
+        type: 'status',
+        status: 'error',
+        text: ev.result ?? 'Turn failed',
+      });
+    }
+
     // Token usage from the final result event.
     if (ev.usage) {
       this._contents.push({
