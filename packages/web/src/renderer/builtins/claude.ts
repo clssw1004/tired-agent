@@ -88,7 +88,12 @@ export class ClaudeRenderer implements AgentRenderer {
   processChunk(chunk: string, _ctx: RenderContext): RenderOutput | void {
     if (!chunk) return;
 
-    this._lineBuffer += chunk;
+    // Strip ANSI escape codes that the PTY injects into the NDJSON stream.
+    // Claude outputs NDJSON through the PTY which intersperses cursor
+    // positioning sequences (\x1b[N;NH) that would break JSON parsing.
+    const cleaned = stripAnsi(chunk);
+
+    this._lineBuffer += cleaned;
     const lines = this._lineBuffer.split('\n');
     this._lineBuffer = lines.pop() ?? '';
 
@@ -252,6 +257,18 @@ export class ClaudeRenderer implements AgentRenderer {
   getContents(): StructuredContent[] { return this._contents; }
   awaitingInput(): boolean { return false; }
   reset(): void { this._contents = []; this._lineBuffer = ''; }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/** Strip ANSI escape sequences from PTY output. */
+function stripAnsi(text: string): string {
+  // CSI sequences: ESC [ <params> <letter>
+  // Also handles OSC, SOS, etc. by stripping everything between ESC and
+  // the final character (0x20-0x7e range).
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b\][0-9;]*(?:\x1b\\|\x07)/g, '')
+    .replace(/\x1b[\x40-\x5f]/g, '');
 }
 
 // ── Detector ───────────────────────────────────────────────────────────
