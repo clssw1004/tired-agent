@@ -1,5 +1,5 @@
 /**
- * InputBar — mobile keyboard passthrough.
+ * PtyInputBar — mobile keyboard passthrough (PTY mode only).
  *
  * Why this exists: on phones, xterm.js's canvas does NOT pop the soft
  * keyboard. The user has no way to type into the terminal. We solve this
@@ -39,7 +39,7 @@ interface Props {
   onEnter?: () => void;
 }
 
-export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: Props) {
+export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
 

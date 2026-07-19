@@ -2,30 +2,30 @@
  * ClaudeChatView — independent chat component for persistent mode sessions.
  *
  * This is a **self-contained** component for Claude chat sessions. It does NOT
- * share state, effects, or rendering logic with ChatContainer/TerminalView.
+ * share state, effects, or rendering logic with PtySessionView/TerminalView.
  *
  * Layout (top to bottom):
  *   1. Header           — back button, session label, status dot.
- *   2. ChatTimelineView — message timeline (reused from structured mode).
+ *   2. ChatTimeline     — message timeline.
  *   3. ControlBar       — interrupt button, execution mode badge.
  *   4. ChatInput        — multi-line textarea + send + mode/command selectors.
  *
  * Data flow:
  *   sendMessage(text)
  *     → JSON.stringify({type:"message", content:text, executionMode})
- *     → transport.sendInput() → Agent spawns PTY
- *     → NDJSON via SSE → ClaudeRenderer parses → setContents()
+ *     → transport.sendInput() → Agent spawns non-TTY child_process
+ *     → clean NDJSON via SSE → ClaudeRenderer parses → setContents()
  *
  *   interrupt()
  *     → JSON.stringify({type:"interrupt"})
- *     → transport.sendInput() → Agent kills PTY
+ *     → transport.sendInput() → Agent kills child process
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ServerRef, ExecutionMode } from '@tired-agent/protocol';
 import { createHttpSseTransport } from '@tired-agent/protocol';
 import type { StructuredContent } from '@tired-agent/protocol';
 import { ClaudeRenderer } from '../renderer/builtins/claude';
-import { ChatTimelineView } from './ChatTimelineView';
+import { ChatTimeline } from './ChatTimeline';
 
 interface Props {
   serverRef: ServerRef;
@@ -181,7 +181,6 @@ export function ClaudeChatView({
 
   // ── Input handlers ──────────────────────────────────────────────────
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter to send, Shift+Enter for new line.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void sendMessage(inputText);
@@ -222,7 +221,7 @@ export function ClaudeChatView({
 
       {/* ── Message timeline ────────────────────────────────────────── */}
       <div className="render-area render-area-structured">
-        <ChatTimelineView
+        <ChatTimeline
           contents={contents}
           streaming={streaming}
         />
@@ -246,7 +245,6 @@ export function ClaudeChatView({
 
       {/* ── Input area ──────────────────────────────────────────────── */}
       <div className="claude-input-area">
-        {/* Toolbar: command + mode selectors */}
         <div className="claude-input-toolbar">
           <div className="claude-input-select-group">
             <button
@@ -272,7 +270,6 @@ export function ClaudeChatView({
           </div>
         </div>
 
-        {/* Textarea + send button */}
         <div className="claude-input-row">
           <textarea
             className="claude-textarea"

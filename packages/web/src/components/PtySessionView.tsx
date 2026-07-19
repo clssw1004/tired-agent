@@ -1,17 +1,20 @@
 /**
- * ChatContainer — top-level shell for a single session's UI.
+ * PtySessionView — top-level shell for a single PTY session's UI.
+ *
+ * This is the **process** (PTY) mode component. Persistent/chat mode uses
+ * ClaudeChatView instead.
  *
  * Layout (top to bottom):
  *   1. Header           — title + status dot.
  *   2. Status strip     — live / typing / connecting / error / offline indicator.
  *   3. RenderArea       — TerminalView (xterm.js) for every CLI session.
- *   4. InterventionBar  — appears above the input when the terminal is waiting
- *                         on a [y/N] prompt (Claude's permission dialogs, etc.).
- *   5. InputBar         — mobile soft-keyboard passthrough. Each keystroke is
- *                         shipped verbatim to the PTY; Enter is just `\r`,
- *                         same as any other character.
+ *   4. PtyInterventionBar  — appears above the input when the terminal is waiting
+ *                            on a [y/N] prompt (Claude's permission dialogs, etc.).
+ *   5. PtyInputBar         — mobile soft-keyboard passthrough. Each keystroke is
+ *                            shipped verbatim to the PTY; Enter is just `\r`,
+ *                            same as any other character.
  *
- * Keyboard model: xterm.js owns the full TUI surface. The InputBar exists
+ * Keyboard model: xterm.js owns the full TUI surface. PtyInputBar exists
  * ONLY to summon the mobile soft keyboard (xterm's canvas does not). On
  * desktop users click the terminal; on mobile they tap the input field.
  * Both paths converge on the same `writeBytes(data)` that ships bytes to
@@ -28,9 +31,9 @@ import type { StructuredContent } from '@tired-agent/protocol';
 import { defaultRegistry, initRenderers, GenericPtyRenderer } from '../renderer';
 import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';
-import { ChatTimelineView } from './ChatTimelineView';
-import { InterventionBar } from './InterventionBar';
-import { InputBar } from './InputBar';
+import { ChatTimeline } from './ChatTimeline';
+import { PtyInterventionBar } from './PtyInterventionBar';
+import { PtyInputBar } from './PtyInputBar';
 import { SpecialKeysBar } from './SpecialKeysBar';
 
 interface Props {
@@ -60,7 +63,7 @@ function decodeText(input: Uint8Array): string {
 
 initRenderers();
 
-export function ChatContainer({
+export function PtySessionView({
   serverRef,
   agentId,
   sessionId,
@@ -108,8 +111,8 @@ export function ChatContainer({
     return () => window.clearInterval(t);
   }, []);
 
-  // ── PTY writer: shared by xterm.onUserInput, InputBar.onChange, and
-  //    InterventionBar.onResponse. Everything funnels through one path so
+  // ── PTY writer: shared by xterm.onUserInput, PtyInputBar.onChange, and
+  //    PtyInterventionBar.onResponse. Everything funnels through one path so
   //    there is exactly one place to log / debounce / handle backpressure.
   const writeBytes = useCallback(async (data: string) => {
     if (disabled || !data) return;
@@ -334,7 +337,7 @@ export function ChatContainer({
         onClick={() => mode !== 'persistent' && termRef.current?.focus()}
       >
         {mode === 'persistent' ? (
-          <ChatTimelineView
+          <ChatTimeline
             contents={structuredContents}
             streaming={streaming}
           />
@@ -376,7 +379,7 @@ export function ChatContainer({
           )}
         </div>
 
-      <InterventionBar
+      <PtyInterventionBar
         key={mode === 'persistent' ? 'persistent' : termReady ? 'ready' : 'pending'}
         terminal={mode === 'persistent' ? null : termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
@@ -388,7 +391,7 @@ export function ChatContainer({
         onKey={(bytes) => void writeBytes(bytes)}
       />
 
-      <InputBar
+      <PtyInputBar
         disabled={disabled}
         sending={false}
         placeholder={

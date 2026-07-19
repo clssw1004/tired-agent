@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { ServerRef, Session } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
-import { ChatContainer } from '../components/ChatContainer';
+import { PtySessionView } from '../components/PtySessionView';
 import { ClaudeChatView } from '../components/ClaudeChatView';
 
 export function TerminalPage() {
@@ -71,7 +71,7 @@ export function TerminalPage() {
   }
 
   return (
-    <ChatContainer
+    <PtySessionView
       {...sharedProps}
       sessionStatus={session?.status ?? 'starting'}
       sessionLabel={session?.label || session?.cmd || '…'}

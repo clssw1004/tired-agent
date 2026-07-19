@@ -22,7 +22,8 @@
  *   kill()   → kill any running PTY + delete session
  */
 import type { IPty } from 'node-pty';
-import { spawn } from 'node-pty';
+import { spawn as ptySpawn } from 'node-pty';
+import { spawn as procSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { SessionSpec } from '@tired-agent/protocol';
 import type { SessionRecord } from './types.js';
@@ -248,19 +249,28 @@ export class SessionManager {
     const file = process.platform === 'win32' ? 'cmd.exe' : 'claude';
     const spawnArgs = process.platform === 'win32' ? ['/c', 'claude', ...args] : args;
 
-    const pty = spawn(file, spawnArgs, {
+    // Use child_process.spawn (NOT node-pty) for persistent mode.
+    // Claude outputs NDJSON with ANSI cursor positioning when stdout is a TTY.
+    // A pipe (non-TTY) gives clean NDJSON that we can parse reliably.
+    const proc = procSpawn(file, spawnArgs, {
       env: buildEnv(null),
-      cols: 80,
-      rows: 24,
-      name: 'xterm-256color',
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    s.pty = pty;
-    this.storage.update({ id, pid: pty.pid });
+    // Track via a minimal interface so the rest of the manager works.
+    const fakePty: IPty = {
+      pid: proc.pid ?? null,
+      // The TS types for IPty are extensive; the fields the manager actually
+      // touches in _handlePersistentInterrupt are pid + kill(), which we
+      // route to the child_process kill below.
+    } as unknown as IPty;
+    s.pty = fakePty;
+    this.storage.update({ id, pid: proc.pid });
 
     let outputBuf = '';
 
-    pty.onData((data: string) => {
+    proc.stdout?.on('data', (buf: Buffer) => {
+      const data = buf.toString('utf8');
       const bytes = new TextEncoder().encode(data);
       const newOffset = this.storage.appendOutput(id, bytes);
       const updated = this.storage.get(id)!;
@@ -275,15 +285,29 @@ export class SessionManager {
       }
     });
 
-    pty.onExit(() => {
+    proc.stderr?.on('data', (buf: Buffer) => {
+      // Capture stderr too (in case Claude logs errors). Tag with prefix so
+      // it's distinguishable from NDJSON.
+      const data = '[stderr] ' + buf.toString('utf8');
+      const bytes = new TextEncoder().encode(data);
+      this.storage.appendOutput(id, bytes);
+      this.broadcast(s, { type: 'output', offset: 0, data: bytes });
+    });
+
+    proc.on('exit', (code) => {
       s.pty = null;
       this.storage.update({ id, pid: null });
 
       const rec = this.storage.get(id)!;
       s.record = rec;
       this.broadcast(s, { type: 'state', record: rec });
-      log.info({ sessionId: id, claudeSessionId: s.claudeSessionId }, 'persistent turn complete');
+      log.info({ sessionId: id, claudeSessionId: s.claudeSessionId, exitCode: code }, 'persistent turn complete');
     });
+
+    // Expose a kill() method on the fake IPty.
+    (fakePty as unknown as { kill: (sig?: string) => void }).kill = (sig?: string) => {
+      try { proc.kill(sig as NodeJS.Signals); } catch { /* already dead */ }
+    };
   }
 
   // ── Common helpers ───────────────────────────────────────────────────
@@ -305,7 +329,7 @@ export class SessionManager {
       }
     }
 
-    const pty = spawn(spawnFile, spawnArgs, {
+    const pty = ptySpawn(spawnFile, spawnArgs, {
       cwd: record.cwd ?? undefined,
       env: buildEnv(record.env),
       cols: record.cols,

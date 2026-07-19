@@ -1,5 +1,5 @@
 /**
- * ChatTimelineView — mobile-first chat timeline for structured mode.
+ * ChatTimeline — mobile-first chat timeline for structured mode.
  *
  * Renders a list of StructuredContent items as a chat timeline:
  * - User messages → right-aligned bubble
@@ -30,7 +30,7 @@ interface Props {
 const SCROLL_THRESHOLD_PX = 30;
 const ENCODER = new TextEncoder();
 
-export function ChatTimelineView({ contents, streaming }: Props) {
+export function ChatTimeline({ contents, streaming }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
