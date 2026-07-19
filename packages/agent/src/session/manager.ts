@@ -64,7 +64,23 @@ export class SessionManager {
         record.args = args;
       }
 
-      const pty = spawn(file, args, {
+      // On Windows, bare command names (no extension, no path separators)
+      // need to go through `cmd.exe /c` so that PATHEXT is respected.
+      // Without this, `CreateProcess("claude")` looks for `claude.exe` and
+      // misses `claude.cmd` (the common form for npm global installs).
+      let spawnFile = file;
+      let spawnArgs = args;
+      if (process.platform === 'win32') {
+        const lower = file.toLowerCase();
+        const isBare = !lower.includes('\\') && !lower.includes('/')
+          && !lower.endsWith('.exe') && !lower.endsWith('.cmd') && !lower.endsWith('.bat');
+        if (isBare) {
+          spawnFile = 'cmd.exe';
+          spawnArgs = ['/c', file, ...args];
+        }
+      }
+
+      const pty = spawn(spawnFile, spawnArgs, {
         cwd: record.cwd ?? undefined,
         env: buildEnv(record.env),
         cols: record.cols,
@@ -273,14 +289,10 @@ export class SessionManager {
 }
 
 function normalizeCmd(cmd: string): string {
-  // Windows: 'cmd' → 'cmd.exe', 'python' → 'python.exe', etc.
-  if (process.platform === 'win32') {
-    const lower = cmd.toLowerCase();
-    if (!lower.endsWith('.exe') && !lower.endsWith('.cmd') && !lower.endsWith('.bat') &&
-        !lower.includes('/') && !lower.includes('\\')) {
-      return `${cmd}.exe`;
-    }
-  }
+  // On Windows, bare commands (no path separators, no recognized extension)
+  // need special handling. Historically we appended `.exe`, but npm global
+  // installs create `.cmd` files (e.g. `claude.cmd`), which `.exe` would miss.
+  // The caller resolves bare commands via `cmd.exe /c` for proper PATHEXT lookup.
   return cmd;
 }
 
