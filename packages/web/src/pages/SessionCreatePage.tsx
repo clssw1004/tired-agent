@@ -58,7 +58,9 @@ export function SessionCreatePage() {
     setMode(p.cmd === 'claude' ? 'structured' : 'pty');
   };
 
-  // Auto-switch to PTY when command is not claude (structured only supports claude).
+  // When command changes away from claude, structured mode is unavailable.
+  // Auto-switch to PTY so the user doesn't accidentally create a structured
+  // session with a non-claude command (which would fail on the server).
   useEffect(() => {
     if (cmd !== 'claude') {
       setMode('pty');
@@ -165,7 +167,6 @@ export function SessionCreatePage() {
                 type="button"
                 className={'mode-toggle-btn' + (mode === 'pty' ? ' is-active' : '')}
                 onClick={() => setMode('pty')}
-                disabled={cmd === 'claude'}
               >
                 <span className="mode-toggle-icon">⬛</span>
                 <span className="mode-toggle-text">终端</span>
@@ -182,8 +183,8 @@ export function SessionCreatePage() {
                 <span className="mode-toggle-desc">结构化时间轴（仅 Claude）</span>
               </button>
             </div>
-            {cmd !== 'claude' && mode === 'structured' && (
-              <div className="field-hint">聊天模式仅支持 Claude 命令</div>
+            {cmd !== 'claude' && (
+              <div className="field-hint">聊天模式仅支持 claude 命令</div>
             )}
           </div>
 

@@ -83,6 +83,12 @@ export function ChatContainer({
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
   const [streaming, setStreaming] = useState(false);
 
+  // Sync mode from prop when session loads asynchronously (TerminalPage
+  // fetches the Session object after mount, so sessionMode starts undefined).
+  useEffect(() => {
+    if (sessionMode) setMode(sessionMode);
+  }, [sessionMode]);
+
   const termRef = useRef<TerminalHandle>(null);
   const rendererRef = useRef<AgentRenderer>(new GenericPtyRenderer());
   const lastChunkAtRef = useRef(0);

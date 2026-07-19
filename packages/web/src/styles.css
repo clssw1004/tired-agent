@@ -1753,12 +1753,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   color: var(--text);
 }
 
-.mode-toggle-btn.is-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.mode-toggle-btn:active:not(.is-disabled) {
+.mode-toggle-btn:active {
   transform: scale(0.98);
 }
 
