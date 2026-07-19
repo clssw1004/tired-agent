@@ -42,7 +42,8 @@ interface Props {
   sessionLabel: string;
   sessionCmd: string;
   sessionArgs: string[];
-  /** Rendering mode. 'pty' (default) → xterm terminal; 'structured' → chat timeline. */
+  /** Rendering mode. 'pty' (default) → xterm terminal; 'persistent' → chat timeline. */
+  /** Session lifecycle mode. 'process' → follows process; 'persistent' → user-managed. */
   sessionMode?: SessionMode;
   onBack?: () => void;
 }
@@ -79,7 +80,7 @@ export function ChatContainer({
   const [busy, setBusy] = useState(false);
 
   // Structured mode state
-  const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'pty');
+  const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
   const [streaming, setStreaming] = useState(false);
 
@@ -115,7 +116,7 @@ export function ChatContainer({
     if (disabled || !data) return;
     try {
       const transport = createHttpSseTransport();
-      const payload = mode === 'structured'
+      const payload = mode === 'persistent'
         ? ENCODER.encode(JSON.stringify({ type: 'message', content: data }) + '\n')
         : ENCODER.encode(data);
       await transport.sendInput(serverRef, sessionId, payload, agentId);
@@ -175,7 +176,7 @@ export function ChatContainer({
         sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
 
         // Replay logic differs by mode.
-        if (mode === 'structured') {
+        if (mode === 'persistent') {
           // Structured mode: replay NDJSON lines through the renderer.
           let accumulated = '';
           for (const chunk of replay.chunks) {
@@ -212,7 +213,7 @@ export function ChatContainer({
             if (!text) return;
             lastChunkAtRef.current = Date.now();
 
-            if (mode === 'structured') {
+            if (mode === 'persistent') {
               // Structured mode: feed through renderer, update contents.
               setStreaming(true);
               const output = renderer.processChunk(text, {
@@ -274,7 +275,7 @@ export function ChatContainer({
   // PTY mode: detect spinner frames / "esc to interrupt" in xterm buffer.
   // Structured mode: track streaming state from SSE events.
   useEffect(() => {
-    if (mode === 'structured') {
+    if (mode === 'persistent') {
       // In structured mode, streaming state is set by the SSE onChunk/onState handlers.
       setBusy(streaming);
       return;
@@ -336,10 +337,10 @@ export function ChatContainer({
       </div>
 
       <div
-        className={'render-area' + (mode === 'structured' ? ' render-area-structured' : '')}
-        onClick={() => mode !== 'structured' && termRef.current?.focus()}
+        className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
+        onClick={() => mode !== 'persistent' && termRef.current?.focus()}
       >
-        {mode === 'structured' ? (
+        {mode === 'persistent' ? (
           <ChatTimelineView
             contents={structuredContents}
             streaming={streaming}
@@ -383,14 +384,14 @@ export function ChatContainer({
         </div>
 
       <InterventionBar
-        key={mode === 'structured' ? 'structured' : termReady ? 'ready' : 'pending'}
-        terminal={mode === 'structured' ? null : termReady ? termRef.current : null}
+        key={mode === 'persistent' ? 'persistent' : termReady ? 'ready' : 'pending'}
+        terminal={mode === 'persistent' ? null : termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
       />
 
       <SpecialKeysBar
         disabled={disabled}
-        structured={mode === 'structured'}
+        structured={mode === 'persistent'}
         onKey={(bytes) => void writeBytes(bytes)}
       />
 
@@ -402,7 +403,7 @@ export function ChatContainer({
             ? '会话已结束'
             : busy
               ? 'Claude 处理中…'
-              : mode === 'structured'
+              : mode === 'persistent'
                 ? '输入消息…'
                 : '输入框 — 手机键盘直通'
         }

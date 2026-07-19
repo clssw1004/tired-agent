@@ -39,7 +39,7 @@ export function SessionCreatePage() {
   const [label, setLabel] = useState('');
   const [cols, setCols] = useState(80);
   const [rows, setRows] = useState(24);
-  const [mode, setMode] = useState<SessionMode>('pty');
+  const [mode, setMode] = useState<SessionMode>('process');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,15 +55,15 @@ export function SessionCreatePage() {
     setArgs(p.args);
     setLabel('');
     // Claude preset auto-selects structured mode; other presets use PTY.
-    setMode(p.cmd === 'claude' ? 'structured' : 'pty');
+    setMode(p.cmd === 'claude' ? 'persistent' : 'process');
   };
 
-  // When command changes away from claude, structured mode is unavailable.
-  // Auto-switch to PTY so the user doesn't accidentally create a structured
-  // session with a non-claude command (which would fail on the server).
+  // When command changes away from claude, persistent mode is unavailable.
+  // Auto-switch to process mode so the user doesn't accidentally create a
+  // persistent session with a non-claude command (which would fail).
   useEffect(() => {
     if (cmd !== 'claude') {
-      setMode('pty');
+      setMode('process');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cmd]);
@@ -161,30 +161,30 @@ export function SessionCreatePage() {
           </div>
 
           <div className="form-section">
-            <div className="form-section-label">显示模式</div>
+            <div className="form-section-label">生命周期</div>
             <div className="mode-toggle">
               <button
                 type="button"
-                className={'mode-toggle-btn' + (mode === 'pty' ? ' is-active' : '')}
-                onClick={() => setMode('pty')}
+                className={'mode-toggle-btn' + (mode === 'process' ? ' is-active' : '')}
+                onClick={() => setMode('process')}
               >
                 <span className="mode-toggle-icon">⬛</span>
-                <span className="mode-toggle-text">终端</span>
-                <span className="mode-toggle-desc">传统 xterm 终端渲染</span>
+                <span className="mode-toggle-text">随进程</span>
+                <span className="mode-toggle-desc">进程结束即自动终止</span>
               </button>
               <button
                 type="button"
-                className={'mode-toggle-btn' + (mode === 'structured' ? ' is-active' : '')}
-                onClick={() => setMode('structured')}
+                className={'mode-toggle-btn' + (mode === 'persistent' ? ' is-active' : '')}
+                onClick={() => setMode('persistent')}
                 disabled={cmd !== 'claude'}
               >
                 <span className="mode-toggle-icon">💬</span>
-                <span className="mode-toggle-text">聊天</span>
-                <span className="mode-toggle-desc">结构化时间轴（仅 Claude）</span>
+                <span className="mode-toggle-text">持久</span>
+                <span className="mode-toggle-desc">需用户手动 Kill（仅 claude）</span>
               </button>
             </div>
             {cmd !== 'claude' && (
-              <div className="field-hint">聊天模式仅支持 claude 命令</div>
+              <div className="field-hint">持久模式仅支持 claude 命令</div>
             )}
           </div>
 

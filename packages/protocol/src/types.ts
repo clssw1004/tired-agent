@@ -10,11 +10,20 @@
 export type SessionStatus = 'starting' | 'running' | 'exited';
 
 /**
- * Session rendering mode.
- * - `'pty'` (default): raw PTY bytes → xterm.js terminal emulator.
- * - `'structured'`: NDJSON lines from Claude CLI → structured chat timeline.
+ * Session lifecycle mode.
+ *
+ * - `'process'` (default): session lifecycle is tied to the underlying
+ *   process. When the PTY exits, the session auto-terminates. Suitable
+ *   for one-shot commands and interactive shells where the session
+ *   lifespan matches a single process invocation.
+ *
+ * - `'persistent'`: the session is a container that outlives individual
+ *   process invocations. Each user message spawns a short-lived process;
+ *   when it finishes, the session stays alive for the next message.
+ *   Suitable for chat/assistant sessions where conversation spans
+ *   multiple turns. Only a user Kill removes the session.
  */
-export type SessionMode = 'pty' | 'structured';
+export type SessionMode = 'process' | 'persistent';
 
 /**
  * Specification for creating a new session.
@@ -36,10 +45,10 @@ export interface SessionSpec {
   /** Human-friendly label shown in the client UI. */
   label?: string;
   /**
-   * Rendering mode for this session's output.
-   * `'pty'` (default) — raw PTY bytes → xterm.js.
-   * `'structured'` — NDJSON stream → chat timeline UI.
-   * @default 'pty'
+   * Session lifecycle mode.
+   * `'process'` (default) — session follows process lifecycle.
+   * `'persistent'` — session lives until user kill.
+   * @default 'process'
    */
   mode?: SessionMode;
 }
@@ -67,7 +76,7 @@ export interface Session {
   cols: number;
   rows: number;
   label?: string;
-  /** @default 'pty' */
+  /** @default 'process' */
   mode?: SessionMode;
 }
 

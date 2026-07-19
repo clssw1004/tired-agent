@@ -73,12 +73,10 @@ export function createSqliteStorage(dataDir: string): Storage {
         cols        INTEGER NOT NULL DEFAULT 80,
         rows        INTEGER NOT NULL DEFAULT 24,
         label       TEXT,
-        mode        TEXT DEFAULT 'pty'
+        mode        TEXT DEFAULT 'process'
       );
     `);
-    // Add mode column for existing databases that were created before
-    // the structured mode feature was added.
-    try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'pty\''); } catch { /* already exists */ }
+    try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'process\''); } catch { /* already exists */ }
     return _db;
   }
 

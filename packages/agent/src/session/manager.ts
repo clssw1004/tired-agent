@@ -61,14 +61,14 @@ export class SessionManager {
     this.storage.insert(record);
 
     // Structured mode: just create the record, PTY starts on first write().
-    if (record.mode === 'structured') {
+    if (record.mode === 'persistent') {
       const liveSession: LiveSession = {
         record,
         pty: null,
         subscribers: new Set(),
       };
       live.set(id, liveSession);
-      log.info({ sessionId: id, cmd: record.cmd, mode: 'structured' }, 'structured session created');
+      log.info({ sessionId: id, cmd: record.cmd, mode: 'persistent' }, 'structured session created');
       return record;
     }
 
@@ -93,7 +93,7 @@ export class SessionManager {
     const s = live.get(id);
     if (!s) throw new Error(`Session ${id} not found`);
 
-    if (s.record.mode === 'structured') {
+    if (s.record.mode === 'persistent') {
       this._structuredWrite(s, id, data);
       return;
     }
@@ -110,7 +110,7 @@ export class SessionManager {
       const rec = this.storage.get(id);
       if (!rec) throw new Error(`Session ${id} not found`);
       // Already cleaned up. Delete storage record for structured sessions.
-      if (rec.mode === 'structured') {
+      if (rec.mode === 'persistent') {
         this.storage.delete(id);
       }
       return;
@@ -124,7 +124,7 @@ export class SessionManager {
     }
 
     // For structured sessions: delete storage record entirely (no "exited" state).
-    if (s.record.mode === 'structured') {
+    if (s.record.mode === 'persistent') {
       live.delete(id);
       this.storage.delete(id);
       log.info({ sessionId: id }, 'structured session deleted');
@@ -202,7 +202,7 @@ export class SessionManager {
   private _spawnPtyForStructured(s: LiveSession, id: string, args: string[], inputText: string): void {
     const file = process.platform === 'win32' ? 'cmd.exe' : 'claude';
     const spawnArgs = process.platform === 'win32' ? ['/c', 'claude', ...args] : args;
-    const logDir = this.storage.list().length > 0 ? 'structured' : 'structured';
+    const logDir = this.storage.list().length > 0 ? 'persistent' : 'persistent';
 
     const pty = spawn(file, spawnArgs, {
       env: buildEnv(null),
@@ -355,7 +355,7 @@ export class SessionManager {
     let removed = 0;
     for (const [id, s] of live) {
       // Don't prune structured sessions (they stay until explicitly killed).
-      if (s.record.mode === 'structured') continue;
+      if (s.record.mode === 'persistent') continue;
       if (s.record.status === 'exited'
           && s.subscribers.size === 0
           && (s.record.exitedAt ?? 0) + grace < now) {
@@ -372,7 +372,7 @@ export class SessionManager {
     for (const rec of stored) {
       if (!live.has(rec.id) && rec.status !== 'exited') {
         // Don't mark structured sessions as exited — they may come back.
-        if (rec.mode === 'structured') continue;
+        if (rec.mode === 'persistent') continue;
         this.storage.update({
           id: rec.id, status: 'exited', exitCode: -1, exitedAt: Date.now(),
         });
