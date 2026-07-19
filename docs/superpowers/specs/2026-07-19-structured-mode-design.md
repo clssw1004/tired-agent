@@ -790,7 +790,214 @@ Web 断开后重连
 
 ---
 
-## 11. Claude JSON 事件类型参考
+## 11. 移动端优先设计（最高优先级 ⚡）
+
+> 结构化模式在手机上必须比 PTY/xterm 模式体验好得多，这是核心目标。
+> 所有组件设计和交互决策以手机端（360px–414px 宽）为第一优先级，平板/桌面逐步增强。
+
+### 11.1 布局层级 (mobile-first)
+
+```
+┌──────────────────────────────┐
+│ Header (精简)                 │ ← 仅显示 agent 名 + 返回按钮
+│  ‹  tired-host              │    状态点移到边角
+├──────────────────────────────┤
+│                              │
+│  Chat Timeline (flex:1)      │ ← 主要滚动区
+│  ┌──────────────────────┐   │
+│  │  帮我写个 Express API │   │ ← 用户消息：右侧气泡
+│  │             ── 我 ──→ │   │   浅色背景，max-width: 85%
+│  └──────────────────────┘   │
+│                              │
+│  ┌──────────────────────┐   │
+│  │ ← Claude              │   │ ← 助手消息：左对齐
+│  │ 好的，我来创建...     │   │   全文宽，行间距 1.6
+│  │                        │   │
+│  │ ┌──────────────────┐  │   │
+│  │ │ const app = ...  │  │   │ ← 代码块：横滚 + 复制按钮
+│  │ │                  │  │   │   13px 字体
+│  │ └──────────────────┘  │   │
+│  │                        │   │
+│  │ ▼ ReadFile            │   │ ← 工具调用：默认折叠卡片
+│  │   src/index.js        │   │   点按展开查看详情
+│  │                        │   │
+│  │ ✦ 正在思考...         │   │ ← 流事件：脉冲动画
+│  │                        │   │
+│  │ 使用率 ↑ 1.2k / ↓ 3k  │   │ ← 用量徽章：极小字，右下
+│  └──────────────────────┘   │
+│                              │
+├──────────────────────────────┤
+│ [Interrupt]                  │ ← 仅 Claude 输出时显示
+├──────────────────────────────┤
+│ ❯ 输入消息...          [→] │ ← 固定底部 + safe area
+└──────────────────────────────┘
+```
+
+### 11.2 输入框设计（移动端最关键）
+
+结构化模式最大的优势：**不需要 InputBar 补丁**，用原生 `<input>` / `<textarea>` 即可触发软键盘。
+
+| 特性 | 实现方式 |
+|------|---------|
+| **发送方式** | **Enter 发送 + Shift+Enter 换行**——符合微信/Telegram 等聊天 app 惯例 |
+| **发送按钮** | 输入框右侧箭头按钮，仅在文本非空时高亮 |
+| **键盘弹出** | 使用 `visualViewport` API 监听键盘弹出，将输入框推到可见区域 |
+| **安全区域** | `padding-bottom: env(safe-area-inset-bottom, 12px)` 适配 iPhone 底部白条 |
+| **输入历史** | ↑↓ 键可在历史消息间切换（便捷重复输入） |
+| **禁用状态** | Claude 输出中时输入框禁用，显示「Claude 处理中…」 |
+| **粘贴支持** | 长按粘贴（原生支持），无需额外处理 |
+
+```typescript
+// InputBar 结构化模式行为
+<textarea
+  rows={1}
+  placeholder={busy ? 'Claude 处理中…' : '输入消息...'}
+  disabled={busy}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (text.trim()) sendMessage(text);
+    }
+  }}
+  onChange={(e) => setText(e.target.value)}
+/>
+```
+
+### 11.3 工具调用卡片（移动端省空间设计）
+
+工具调用是 Claude 输出中占空间最多的部分。移动端必须**默认折叠**：
+
+```
+┌─ ▼ ReadFile ──────────────────────┐  ← 折叠态：一行
+│  ✔ src/index.js                   │     状态图标 + 文件名
+└────────────────────────────────────┘
+
+点按展开后：
+┌─ ▲ ReadFile ──────────────────────┐  ← 展开态
+│  ┌──────────────────────────┐     │
+│  │ {                       │     │  ← 参数（JSON，预格式化）
+│  │   "path": "src/index.js"│     │
+│  │ }                       │     │
+│  └──────────────────────────┘     │
+│                                   │
+│  ┌ 结果 ──────────────────────┐  │
+│  │ const app = express()      │  │  ← 结果内容
+│  │ ...                        │  │
+│  └────────────────────────────┘  │
+└────────────────────────────────────┘
+```
+
+**交互细节：**
+- 折叠态只显示工具名 + 状态图标（⏳ 进行中 / ✔ 完成 / ❌ 失败）
+- 点按卡片任意位置展开/收起
+- 同一时间只展开一个工具卡片（自动收起上一个）
+- 动画使用 `max-height` transition 而非 `height`（性能更好）
+
+### 11.4 代码块（移动端适配）
+
+```css
+/* 代码块在移动端 */
+.code-block {
+  font-size: 12px;           /* 手机：12px */
+  border-radius: 8px;
+  overflow-x: auto;          /* 横滚 */
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;  /* iOS 顺滑滚动 */
+}
+
+@media (min-width: 768px) {
+  .code-block {
+    font-size: 13px;         /* 平板/桌面：13px */
+  }
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.code-block-copy {
+  /* 浮动在右上角的复制按钮 */
+  position: sticky;
+  top: 0;
+  float: right;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+}
+```
+
+**交互细节：**
+- 单点右上角复制按钮即可复制代码
+- 长按可唤出系统选择菜单
+- 用 `position: sticky` 实现横滚时复制按钮固定在右上角
+
+### 11.5 消息列表性能（移动端内存优化）
+
+结构化模式下消息数量可能很大（长对话几百条消息）。移动端内存敏感：
+
+| 策略 | 实现 |
+|------|------|
+| **虚拟列表** | 只渲染可视区域 ±20 条消息，其余用占位。使用 `react-virtual` 或自定义滚动 |
+| **图片懒加载** | 如果 tool_result 包含 base64 图片，只在进入视口时解码 |
+| **折叠态不渲染详情** | 折叠的工具卡片不渲染 innerHTML，只渲染标题行 |
+| **滚动锚定** | 新消息到来时如果用户在底部则自动滚动，否则显示「↓ 跳到底部」按钮 |
+| **增量渲染** | 收到 `streamEvent` 时使用 `requestAnimationFrame` 批量更新，避免每帧 setState |
+
+### 11.6 手势操作
+
+| 手势 | 操作 |
+|------|------|
+| **点按** | 展开/收起工具卡片 |
+| **长按** | 唤出系统菜单（复制/分享） |
+| **双指捏合** | 放大/缩小代码块字体（仅 WebKit） |
+| **左滑** | （预留）删除/归档消息 |
+| **下拉** | （预留）刷新会话 |
+
+### 11.7 与现有 PTY 模式的移动端对比
+
+| 场景 | PTY 模式（现有） | 结构化模式（新增） |
+|------|-----------------|------------------|
+| **软键盘触发** | ❌ 需要 InputBar 补丁 | ✅ `<textarea>` 原生触发 |
+| **中文输入法** | ⚠️ 已做 composition 处理 | ✅ 原生 composition 事件 |
+| **特殊按键** | ❌ 需要 SpecialKeysBar | ✅ 仅需 Interrupt 按钮 |
+| **代码复制** | ⚠️ 需要 FAB + selection API | ✅ 原生复制 + 按钮复制 |
+| **输出阅读** | ❌ 小字体终端文本，横滚频繁 | ✅ 结构化呈现，阅读体验好 |
+| **数据用量** | ⚠️ 全量终端输出（含 ANSI） | ✅ 纯 JSON，更紧凑 |
+| **重连恢复** | ✅ 字节偏移量重放 | ✅ NDJSON 重放 + 结构化恢复 |
+
+### 11.8 响应式断点
+
+```css
+/* 移动优先断点 */
+/* < 400px  — 小屏手机 */
+/* 400-767px — 大屏手机 */
+/* 768-1199px — 平板 */
+/* ≥ 1200px  — 桌面 */
+
+/* 字体层级 */
+:root {
+  --fs-user-message: 15px;     /* 用户消息 */
+  --fs-assistant: 15px;        /* 助手文本 */
+  --fs-code: 13px;             /* 代码块 */
+  --fs-tool-card: 13px;       /* 工具卡片 */
+  --fs-tiny: 11px;            /* 用量/时间戳 */
+}
+
+@media (max-width: 400px) {
+  :root {
+    --fs-user-message: 14px;
+    --fs-assistant: 14px;
+    --fs-code: 12px;
+  }
+}
+```
+
+---
 
 Claude CLI 的 stream-json 输出格式（基于公开文档和 VS Code 扩展逆向）：
 
@@ -852,9 +1059,14 @@ interface ClaudeError {
 
 ---
 
-## 12. 实现阶段
+## 12. 实现阶段（移动端优先）
 
-### Phase 1: 基础骨架（预计 1-2 天）
+> 每个 Phase 中，所有组件**先做移动端适配**，再补充桌面增强。
+> 每个新组件完成时必须在 375px 视口宽度下验证可用。
+
+### Phase 1: 基础骨架 + 移动端输入（最重要）
+
+结构化模式最核心的价值是**移动端输入体验**。Phase 1 先保证用户在手机上能打字、能看到输出。
 
 | 步骤 | 文件 | 改动 |
 |------|------|------|
@@ -863,29 +1075,49 @@ interface ClaudeError {
 | 1.3 | `packages/agent/src/session/types.ts` | `SessionRecord` 加 `mode` 字段 |
 | 1.4 | `packages/agent/src/session/storage.ts` | DB schema 加 `mode` 列 |
 | 1.5 | `packages/web/src/renderer/builtins/claude.ts` | 实现 `ClaudeRenderer` 为 NDJSON 解析器 |
-| 1.6 | `packages/web/src/components/ChatTimelineView.tsx` | 新建——基础时间轴组件 |
+| 1.6 | `packages/web/src/components/ChatTimelineView.tsx` | 新建——基础时间轴组件（**移动端优先**） |
 | 1.7 | `packages/web/src/components/ChatContainer.tsx` | 根据 `mode` 分叉渲染输入输出 |
 | 1.8 | `packages/web/src/pages/SessionCreatePage.tsx` | 加 mode 选择器 |
+| 1.9 | `packages/web/src/styles.css` | 移动端基础样式 + safe area 适配 |
 
-### Phase 2: 交互增强（预计 2-3 天）
+**移动端验收标准：**
+- 在 Pixel 2 XL (412px) 和 iPhone SE (375px) 视口下输入框能正常触发软键盘
+- `env(safe-area-inset-bottom)` 确保 iPhone X+ 底部白条不遮挡输入框
+- 输入框 Enter 发送 + Shift+Enter 换行正常工作
+- 第一次收到底层 NDJSON 能正确渲染为时间轴条目
 
-| 步骤 | 改动 |
-|------|------|
-| 2.1 | 工具卡片可折叠（`ToolUseCard` 展开/收起） |
-| 2.2 | 代码块语法高亮（集成 shiki 或 highlight.js） |
-| 2.3 | Diff 视图组件（解析 `toolResult` 中的 diff） |
-| 2.4 | 流式打字机效果（`streamEvent` 逐渐显示文本） |
-| 2.5 | 复制代码块按钮 |
+### Phase 2: 移动端核心交互（最常用场景）
 
-### Phase 3: 体验完善（预计 2-3 天）
+| 步骤 | 改动 | 移动端考虑 |
+|------|------|-----------|
+| 2.1 | 代码块：横滚 + 右上角浮动复制按钮 | 12px 字体 + `-webkit-overflow-scrolling: touch` + 复制反馈 (vibrate) |
+| 2.2 | 工具调用卡片：默认折叠 + 点按展开/收起 | 折叠态只显示一行，展开态填充内容。同一时间只展开一个 |
+| 2.3 | 输入框：`visualViewport` 键盘避让 + 安全区域 | 键盘弹出时输入框固定在键盘上方，不遮挡内容 |
+| 2.4 | 消息列表：自动滚动 + "↓ 跳到底部" 按钮 | 用户向上翻看时不抢滚动，底部出现浮动按钮 |
+| 2.5 | 流式打字机效果（`streamEvent` → `requestAnimationFrame` 批量更新） | 避免每帧 setState，降低渲染频率 |
 
-| 步骤 | 改动 |
-|------|------|
-| 3.1 | 会话历史保留（从 replay 恢复结构化内容） |
-| 3.2 | 权限请求处理（`control_request` → InterventionBar） |
-| 3.3 | 自动滚动到底部 |
-| 3.4 | 输入框适配（按 Enter 发送整条消息） |
-| 3.5 | Ctrl+C 中断（SpecialKeysBar 适配结构化模式） |
+**移动端验收标准：**
+- 代码块可横向平滑滚动，复制按钮可见
+- 工具卡片默认占用 < 2 行高度，点按后展开
+- 键盘弹出时输入框不被遮挡，内容区自动调整
+- 长输出流中滚动行为流畅，不卡顿
+
+### Phase 3: 桌面增强 + 体验补充
+
+| 步骤 | 改动 | 优先级 |
+|------|------|--------|
+| 3.1 | 代码块语法高亮（集成 highlight.js 或 shiki，只在桌面预编译） | 桌面优先 |
+| 3.2 | Diff 视图组件（解析 `toolResult` 中的 diff） | 桌面优先 |
+| 3.3 | 权限请求处理（`control_request` → InterventionBar） | 移动端也重要 |
+| 3.4 | 消息历史重放恢复（replay → 恢复结构化内容） | 两者都需要 |
+| 3.5 | 会话命名 + 历史列表 | 两者都需要 |
+| 3.6 | Ctrl+C 中断按钮（结构化模式适配） | 移动端重要 |
+
+**移动端验收标准：**
+- 重连后历史消息正确恢复
+- Ctrl+C 中断按钮在 Claude 输出时可见且可用
+- 长时间对话（200+ 条消息）内存稳定，不卡顿
+- 所有交互在离线重连边缘条件下正常工作
 
 ---
 
