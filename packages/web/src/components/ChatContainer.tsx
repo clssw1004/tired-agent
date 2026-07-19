@@ -29,6 +29,7 @@ import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';
 import { InterventionBar } from './InterventionBar';
 import { InputBar } from './InputBar';
+import { SpecialKeysBar } from './SpecialKeysBar';
 
 interface Props {
   serverRef: ServerRef;
@@ -223,6 +224,11 @@ export function ChatContainer({
         key={termReady ? 'ready' : 'pending'}
         terminal={termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
+      />
+
+      <SpecialKeysBar
+        disabled={disabled}
+        onKey={(bytes) => void writeBytes(bytes)}
       />
 
       <InputBar

@@ -11,10 +11,18 @@
  * is just `\r` — the same as any other character. The host treats all
  * input identically: forward to the PTY, let the PTY echo back.
  *
- * The internal `value` state is intentionally ephemeral — we don't need
- * to remember typed text (the PTY owns the line buffer); we only mirror
- * what the user types so the input visually updates, which keeps mobile
- * keyboards happy (composition events, autocorrect, etc.).
+ * IME handling: while the user is composing (Chinese pinyin, Japanese
+ * kana, autocorrect, etc.) intermediate onChange events fire with
+ * partial text. Forwarding each intermediate string to the PTY makes the
+ * terminal show "n", "ni", "nih", "niha", "nihao", "你好" — a mess. We
+ * track composition via `compositionstart`/`compositionend` and `isComposing`,
+ * buffer the diff, and only emit the final committed string on
+ * `compositionend`. Special keys (Tab/Arrows/Esc/Ctrl+?) are also held
+ * while composing — they never make sense mid-IME.
+ *
+ * The internal `value` state mirrors what the user has typed so the
+ * input visually updates — required to keep mobile keyboards happy
+ * (composition events, autocorrect, etc.).
  */
 
 import { useRef, useEffect, useState } from 'react';
@@ -24,7 +32,8 @@ interface Props {
   sending: boolean;
   placeholder?: string;
   /** Called for every character (or backspace, arrow, etc.) the user types.
-   *  `data` is the raw text — host is responsible for encoding to bytes. */
+   *  `data` is the raw text — host is responsible for encoding to bytes.
+   *  During IME composition this is NOT called until composition ends. */
   onChange: (data: string) => void;
   /** Called when Enter is pressed (so the host can flush its own buffers). */
   onEnter?: () => void;
@@ -33,6 +42,13 @@ interface Props {
 export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
+
+  // IME state. `composingRef` is true between compositionstart and
+  // compositionend (or while nativeEvent.isComposing on the latest event).
+  // `preCompositionValueRef` snapshots the input value when composition
+  // starts so we can compute the committed delta on compositionend.
+  const composingRef = useRef(false);
+  const preCompositionValueRef = useRef('');
 
   // Refocus after each send resolves so the keyboard stays open on mobile.
   useEffect(() => {
@@ -46,23 +62,61 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
     return () => window.clearTimeout(id);
   }, [disabled]);
 
+  const flushDelta = (prev: string, next: string) => {
+    if (prev === next) return;
+    if (next.length > prev.length && next.startsWith(prev)) {
+      // Pure append — most common case for normal typing.
+      onChange(next.slice(prev.length));
+    } else if (next.length < prev.length) {
+      // Deletion — send backspace per removed char.
+      const removed = prev.length - next.length;
+      onChange('\x7f'.repeat(removed));
+      if (next.length > 0 && !next.startsWith(prev.slice(0, next.length))) {
+        // Autocorrect rewrite: prefix diverged after a shorter common prefix.
+        // Send the full replacement text so the PTY ends up correct.
+        onChange(next);
+      }
+    } else {
+      // Same length but diverged (autocorrect at the cursor end). Send the
+      // full new value to overwrite.
+      onChange(next);
+    }
+  };
+
+  const handleCompositionStart = (e: React.CompositionEvent<HTMLInputElement>) => {
+    composingRef.current = true;
+    preCompositionValueRef.current = e.target.value;
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
+    composingRef.current = false;
+    const next = e.target.value;
+    // Emit the entire committed delta from where composition started.
+    // This is the only path that fires for IME users — intermediate
+    // onChange events are skipped while composing.
+    flushDelta(preCompositionValueRef.current, next);
+    setValue(next);
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value;
-    // Diff: anything in `next` that wasn't in `value` is newly typed text.
-    // For deletion, the simplest correct behaviour is to send a backspace
-    // per character removed. (Autocorrect can rewrite multiple chars in
-    // one event; we approximate by sending the delta.)
-    if (next.length > value.length) {
-      const added = next.slice(value.length);
-      onChange(added);
-    } else if (next.length < value.length) {
-      const removed = value.length - next.length;
-      onChange('\x7f'.repeat(removed));
+    // Skip while IME is composing — the intermediate text isn't final.
+    // Also skip if the browser already flagged this event as composing
+    // (covers browsers that don't fire compositionstart for autocorrect).
+    if (composingRef.current || e.nativeEvent.isComposing) {
+      setValue(next);
+      return;
     }
+    flushDelta(value, next);
     setValue(next);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // While composing, do NOT forward special keys — Tab/arrows during
+    // IME input would be sent to the underlying program and corrupt the
+    // composition state.
+    if (composingRef.current || e.nativeEvent.isComposing) return;
+
     // Special keys that <input> doesn't reflect in `value`: arrows, escape,
     // tab, ctrl+*, function keys. Translate to terminal bytes.
     const map: Record<string, string> = {
@@ -115,6 +169,8 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
         placeholder={placeholder ?? 'Type a command and press Enter…'}
         value={value}
         onChange={handleChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onKeyDown={handleKeyDown}
       />
     </form>
