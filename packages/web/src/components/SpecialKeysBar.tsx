@@ -33,6 +33,8 @@ interface Props {
   /** Called with the raw terminal bytes for the tapped key. */
   onKey: (bytes: string) => void;
   disabled?: boolean;
+  /** When true, render simplified keys for structured (chat) mode. */
+  structured?: boolean;
 }
 
 interface KeyDef {
@@ -45,7 +47,13 @@ interface KeyDef {
 
 const LONG_PRESS_MS = 500;
 
-const KEYS: KeyDef[] = [
+/** Structured-mode keys: only interrupt and stop. */
+const STRUCTURED_KEYS: KeyDef[] = [
+  { label: '中断', bytes: '\x03', longPressBytes: '\x03\x03', title: '中断 Claude (长按强制中断)' },
+];
+
+/** PTY-mode keys: full terminal control set. */
+const PTY_KEYS: KeyDef[] = [
   { label: 'Esc',  bytes: '\x1b',    title: 'Escape' },
   { label: 'Tab',  bytes: '\t',      title: 'Tab' },
   { label: '↑',    bytes: '\x1b[A',  title: 'Arrow up' },
@@ -69,10 +77,11 @@ function haptic(ms: number): void {
   }
 }
 
-export function SpecialKeysBar({ onKey, disabled }: Props) {
+export function SpecialKeysBar({ onKey, disabled, structured }: Props) {
+  const keys = structured ? STRUCTURED_KEYS : PTY_KEYS;
   return (
-    <div className="special-keys" role="toolbar" aria-label="Terminal special keys">
-      {KEYS.map((k) => (
+    <div className={'special-keys' + (structured ? ' special-keys-structured' : '')} role="toolbar" aria-label={structured ? 'Chat controls' : 'Terminal special keys'}>
+      {keys.map((k) => (
         <KeyButton key={k.label} def={k} disabled={disabled} onKey={onKey} />
       ))}
     </div>

@@ -22,11 +22,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ServerRef, SessionStatus } from '@tired-agent/protocol';
+import type { ServerRef, Session, SessionStatus, SessionMode } from '@tired-agent/protocol';
 import { createHttpSseTransport } from '@tired-agent/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 import { defaultRegistry, initRenderers, GenericPtyRenderer } from '../renderer';
 import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';
+import { ChatTimelineView } from './ChatTimelineView';
 import { InterventionBar } from './InterventionBar';
 import { InputBar } from './InputBar';
 import { SpecialKeysBar } from './SpecialKeysBar';
@@ -40,6 +42,8 @@ interface Props {
   sessionLabel: string;
   sessionCmd: string;
   sessionArgs: string[];
+  /** Rendering mode. 'pty' (default) → xterm terminal; 'structured' → chat timeline. */
+  sessionMode?: SessionMode;
   onBack?: () => void;
 }
 
@@ -63,6 +67,7 @@ export function ChatContainer({
   sessionLabel,
   sessionCmd,
   sessionArgs,
+  sessionMode,
   onBack,
 }: Props) {
   const [connected, setConnected] = useState(false);
@@ -72,6 +77,11 @@ export function ChatContainer({
   const [copyFlash, setCopyFlash] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Structured mode state
+  const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'pty');
+  const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
+  const [streaming, setStreaming] = useState(false);
 
   const termRef = useRef<TerminalHandle>(null);
   const rendererRef = useRef<AgentRenderer>(new GenericPtyRenderer());
@@ -92,15 +102,21 @@ export function ChatContainer({
   // ── PTY writer: shared by xterm.onUserInput, InputBar.onChange, and
   //    InterventionBar.onResponse. Everything funnels through one path so
   //    there is exactly one place to log / debounce / handle backpressure.
+  //
+  //    In structured mode, user input is wrapped as a JSON message before
+  //    being written to the PTY since the Claude CLI reads stdin as NDJSON.
   const writeBytes = useCallback(async (data: string) => {
     if (disabled || !data) return;
     try {
       const transport = createHttpSseTransport();
-      await transport.sendInput(serverRef, sessionId, ENCODER.encode(data), agentId);
+      const payload = mode === 'structured'
+        ? ENCODER.encode(JSON.stringify({ type: 'message', content: data }) + '\n')
+        : ENCODER.encode(data);
+      await transport.sendInput(serverRef, sessionId, payload, agentId);
     } catch (err) {
       setTransportError((err as Error).message);
     }
-  }, [disabled, serverRef, sessionId, agentId]);
+  }, [disabled, serverRef, sessionId, agentId, mode]);
 
   // ── Copy selected text from xterm to clipboard. Mobile Safari doesn't
   //    surface a copy button on long-press selection by default, so we
@@ -152,13 +168,34 @@ export function ChatContainer({
         rendererRef.current = renderer;
         sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
 
-        let seeded = '';
-        for (const chunk of replay.chunks) {
-          seeded += decodeText(base64ToBytes(chunk.data));
-        }
-        if (seeded) {
-          termRef.current?.write(seeded);
-          lastChunkAtRef.current = Date.now();
+        // Replay logic differs by mode.
+        if (mode === 'structured') {
+          // Structured mode: replay NDJSON lines through the renderer.
+          let accumulated = '';
+          for (const chunk of replay.chunks) {
+            accumulated += decodeText(base64ToBytes(chunk.data));
+          }
+          if (accumulated) {
+            const output = renderer.processChunk(accumulated, {
+              session: sessionRef.current,
+              streaming: false,
+              segmentContent: [],
+            });
+            if (output && output.contents.length > 0) {
+              setStructuredContents([...output.contents]);
+            }
+            lastChunkAtRef.current = Date.now();
+          }
+        } else {
+          // PTY mode: write replay bytes to xterm.js.
+          let seeded = '';
+          for (const chunk of replay.chunks) {
+            seeded += decodeText(base64ToBytes(chunk.data));
+          }
+          if (seeded) {
+            termRef.current?.write(seeded);
+            lastChunkAtRef.current = Date.now();
+          }
         }
 
         setConnected(true);
@@ -168,19 +205,37 @@ export function ChatContainer({
             const text = decodeText(c.data);
             if (!text) return;
             lastChunkAtRef.current = Date.now();
-            // Respect manual scroll: if the user has scrolled up to read
-            // history, don't yank them back to the bottom on each chunk —
-            // the "jump to latest" pill lets them return when ready.
-            const wasAtBottom = termRef.current?.isAtBottom() ?? true;
-            termRef.current?.write(text);
-            if (wasAtBottom) termRef.current?.scrollToBottom();
-            renderer.processChunk(text, {
-              session: sessionRef.current,
-              streaming: true,
-              segmentContent: [],
-            });
+
+            if (mode === 'structured') {
+              // Structured mode: feed through renderer, update contents.
+              setStreaming(true);
+              const output = renderer.processChunk(text, {
+                session: sessionRef.current,
+                streaming: true,
+                segmentContent: [],
+              });
+              if (output && output.contents.length > 0) {
+                setStructuredContents([...output.contents]);
+              }
+            } else {
+              // PTY mode: write directly to xterm.js.
+              const wasAtBottom = termRef.current?.isAtBottom() ?? true;
+              termRef.current?.write(text);
+              if (wasAtBottom) termRef.current?.scrollToBottom();
+              renderer.processChunk(text, {
+                session: sessionRef.current,
+                streaming: true,
+                segmentContent: [],
+              });
+            }
           },
-          onState: () => { /* status pill driven by sessionStatus prop */ },
+          onState: (session: Session) => {
+            // Sync mode from server-side session metadata.
+            if (session.mode) setMode(session.mode);
+            // Update streaming state based on session status.
+            if (session.status === 'running') setStreaming(true);
+            if (session.status === 'exited') setStreaming(false);
+          },
           onError: (e) => setTransportError(e.message),
         }, agentId);
         if (cancelled) subscription.close();
@@ -194,7 +249,7 @@ export function ChatContainer({
       subscription?.close();
       rendererRef.current.reset();
     };
-  }, [sessionId, serverRef.id, agentId]);
+  }, [sessionId, serverRef.id, agentId, mode]);
 
   // If session metadata loads asynchronously (TerminalPage fetches Session),
   // re-select the renderer with the actual cmd/args.
@@ -209,11 +264,16 @@ export function ChatContainer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionCmd, sessionArgs.join('|'), connected]);
 
-  // Busy detection — the underlying CLI is actively working (spinner frames,
-  // Claude "esc to interrupt" hint, etc.). We dim the InputBar in this state
-  // so the user understands they can't type yet, and we keep SpecialKeysBar
-  // fully active so Ctrl+C remains a one-tap interrupt.
+  // Busy detection — are we waiting for Claude to finish generating?
+  // PTY mode: detect spinner frames / "esc to interrupt" in xterm buffer.
+  // Structured mode: track streaming state from SSE events.
   useEffect(() => {
+    if (mode === 'structured') {
+      // In structured mode, streaming state is set by the SSE onChunk/onState handlers.
+      setBusy(streaming);
+      return;
+    }
+    // PTY mode: scan xterm buffer for spinner / interrupt hints.
     if (!termReady) return;
     const handle = termRef.current;
     if (!handle) return;
@@ -229,7 +289,7 @@ export function ChatContainer({
     };
     check();
     return handle.onWrite(check);
-  }, [termReady]);
+  }, [termReady, mode, streaming]);
 
   // ── Status derivation ──────────────────────────────────────────────────
   const typing = lastChunkAtRef.current > 0
@@ -270,51 +330,61 @@ export function ChatContainer({
       </div>
 
       <div
-        className="render-area"
-        onClick={() => termRef.current?.focus()}
+        className={'render-area' + (mode === 'structured' ? ' render-area-structured' : '')}
+        onClick={() => mode !== 'structured' && termRef.current?.focus()}
       >
-        <TerminalView
-          ref={termRef}
-          onReady={() => setTermReady(true)}
-          onUserInput={(data) => void writeBytes(data)}
-          onSelectionChange={(text) => setSelection(text)}
-          onScroll={(ab) => setAtBottom(ab)}
-        />
-        {selection && (
-          <button
-            type="button"
-            className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
-            onClick={(e) => { e.stopPropagation(); void copySelection(); }}
-            aria-label="Copy selection"
-          >
-            <span aria-hidden>📋</span>
-            <span>{copyFlash ? '已复制' : '复制'}</span>
-          </button>
-        )}
-        {!atBottom && (
-          <button
-            type="button"
-            className="jump-to-bottom"
-            onClick={(e) => {
-              e.stopPropagation();
-              termRef.current?.scrollToBottom();
-              setAtBottom(true);
-            }}
-            aria-label="Jump to latest output"
-          >
-            ↓ 跳到最新
-          </button>
-        )}
-      </div>
+        {mode === 'structured' ? (
+          <ChatTimelineView
+            contents={structuredContents}
+            streaming={streaming}
+          />
+        ) : (
+          <>
+            <TerminalView
+              ref={termRef}
+              onReady={() => setTermReady(true)}
+              onUserInput={(data) => void writeBytes(data)}
+              onSelectionChange={(text) => setSelection(text)}
+              onScroll={(ab) => setAtBottom(ab)}
+            />
+            {selection && (
+              <button
+                type="button"
+                className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
+                onClick={(e) => { e.stopPropagation(); void copySelection(); }}
+                aria-label="Copy selection"
+              >
+                <span aria-hidden>📋</span>
+                <span>{copyFlash ? '已复制' : '复制'}</span>
+              </button>
+            )}
+            {!atBottom && (
+              <button
+                type="button"
+                className="jump-to-bottom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  termRef.current?.scrollToBottom();
+                  setAtBottom(true);
+                }}
+                aria-label="Jump to latest output"
+              >
+                ↓ 跳到最新
+              </button>
+            )}
+            </>
+          )}
+        </div>
 
       <InterventionBar
-        key={termReady ? 'ready' : 'pending'}
-        terminal={termReady ? termRef.current : null}
+        key={mode === 'structured' ? 'structured' : termReady ? 'ready' : 'pending'}
+        terminal={mode === 'structured' ? null : termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
       />
 
       <SpecialKeysBar
         disabled={disabled}
+        structured={mode === 'structured'}
         onKey={(bytes) => void writeBytes(bytes)}
       />
 
@@ -323,10 +393,12 @@ export function ChatContainer({
         sending={false}
         placeholder={
           disabled
-            ? 'Session has exited'
+            ? '会话已结束'
             : busy
               ? 'Claude 处理中…'
-              : '输入框 — 手机键盘直通'
+              : mode === 'structured'
+                ? '输入消息…'
+                : '输入框 — 手机键盘直通'
         }
         onChange={(data) => void writeBytes(data)}
       />

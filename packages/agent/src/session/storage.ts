@@ -12,7 +12,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import type { SessionRecord } from './types.js';
-import type { SessionStatus } from '@tired-agent/protocol';
+import type { SessionStatus, SessionMode } from '@tired-agent/protocol';
 
 // ─── CJS require bridge for better-sqlite3 ─────────────────────────────────────
 const _require = createRequire(import.meta.url);
@@ -72,9 +72,13 @@ export function createSqliteStorage(dataDir: string): Storage {
         byteOffset  INTEGER NOT NULL DEFAULT 0,
         cols        INTEGER NOT NULL DEFAULT 80,
         rows        INTEGER NOT NULL DEFAULT 24,
-        label       TEXT
+        label       TEXT,
+        mode        TEXT DEFAULT 'pty'
       );
     `);
+    // Add mode column for existing databases that were created before
+    // the structured mode feature was added.
+    try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'pty\''); } catch { /* already exists */ }
     return _db;
   }
 
@@ -85,13 +89,13 @@ export function createSqliteStorage(dataDir: string): Storage {
 
   function insert(s: SessionRecord) {
     db().prepare(`
-      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       s.id, s.cmd, JSON.stringify(s.args), s.cwd,
       s.env ? JSON.stringify(s.env) : null, s.status,
       s.pid, s.exitCode, s.createdAt, s.exitedAt,
-      s.byteOffset, s.cols, s.rows, s.label,
+      s.byteOffset, s.cols, s.rows, s.label, s.mode,
     );
   }
 
@@ -188,6 +192,7 @@ export function createSqliteStorage(dataDir: string): Storage {
       byteOffset: r['byteOffset'],
       cols: r['cols'], rows: r['rows'],
       label: r['label'] ?? null,
+      mode: (r['mode'] as SessionMode | null) ?? null,
     };
   }
 

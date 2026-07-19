@@ -10,6 +10,13 @@
 export type SessionStatus = 'starting' | 'running' | 'exited';
 
 /**
+ * Session rendering mode.
+ * - `'pty'` (default): raw PTY bytes → xterm.js terminal emulator.
+ * - `'structured'`: NDJSON lines from Claude CLI → structured chat timeline.
+ */
+export type SessionMode = 'pty' | 'structured';
+
+/**
  * Specification for creating a new session.
  * Mirrors the request body of `POST /v1/sessions`.
  */
@@ -28,6 +35,13 @@ export interface SessionSpec {
   rows?: number;
   /** Human-friendly label shown in the client UI. */
   label?: string;
+  /**
+   * Rendering mode for this session's output.
+   * `'pty'` (default) — raw PTY bytes → xterm.js.
+   * `'structured'` — NDJSON stream → chat timeline UI.
+   * @default 'pty'
+   */
+  mode?: SessionMode;
 }
 
 /**
@@ -53,6 +67,8 @@ export interface Session {
   cols: number;
   rows: number;
   label?: string;
+  /** @default 'pty' */
+  mode?: SessionMode;
 }
 
 /**
@@ -190,6 +206,47 @@ export interface ContentCommand {
   parsed: string;
 }
 
+// ── Structured mode (stream-json) content types ─────────────────────────
+
+export interface ContentUserMessage {
+  type: 'userMessage';
+  text: string;
+}
+
+export interface ContentToolUse {
+  type: 'toolUse';
+  name: string;
+  /** JSON-stringified tool parameters. */
+  input: string;
+  /** Unique identifier for correlating with tool result. */
+  toolUseId: string;
+  /** Whether the tool has completed (result received). */
+  completed?: boolean;
+}
+
+export interface ContentToolResult {
+  type: 'toolResult';
+  toolUseId: string;
+  content: string;
+  /** MIME hint for rendering (e.g. "text/markdown", "image/png"). */
+  mimeType?: string;
+  /** Whether the tool call resulted in an error. */
+  isError?: boolean;
+}
+
+export interface ContentStreamEvent {
+  type: 'streamEvent';
+  text: string;
+  /** True = append to the last assistant text, false = start new. */
+  append: boolean;
+}
+
+export interface ContentUsage {
+  type: 'usage';
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export type StructuredContent =
   | ContentText
   | ContentCode
@@ -198,7 +255,12 @@ export type StructuredContent =
   | ContentTable
   | ContentLink
   | ContentImage
-  | ContentCommand;
+  | ContentCommand
+  | ContentUserMessage
+  | ContentToolUse
+  | ContentToolResult
+  | ContentStreamEvent
+  | ContentUsage;
 
 /** Error response shape used by the server. */
 export interface ErrorResponse {

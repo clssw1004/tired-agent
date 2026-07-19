@@ -48,7 +48,22 @@ export class SessionManager {
 
     try {
       const file = normalizeCmd(record.cmd);
-      const args = record.args ?? [];
+      let args = record.args ?? [];
+
+      // Structured mode: inject Claude CLI stream-json flags so the output
+      // is NDJSON lines instead of TUI terminal escape sequences.
+      if (record.mode === 'structured') {
+        args = [
+          '--output-format', 'stream-json',
+          '--input-format', 'stream-json',
+          '--include-partial-messages',
+          ...args,
+        ];
+        // Update stored args so replay and inspection see the real command.
+        this.storage.update({ id, args });
+        record.args = args;
+      }
+
       const pty = spawn(file, args, {
         cwd: record.cwd ?? undefined,
         env: buildEnv(record.env),

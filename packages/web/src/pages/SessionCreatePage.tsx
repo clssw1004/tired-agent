@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { ServerRef } from '@tired-agent/protocol';
+import type { ServerRef, SessionMode } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { useToast } from '../components/Toast';
@@ -39,6 +39,7 @@ export function SessionCreatePage() {
   const [label, setLabel] = useState('');
   const [cols, setCols] = useState(80);
   const [rows, setRows] = useState(24);
+  const [mode, setMode] = useState<SessionMode>('pty');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +54,17 @@ export function SessionCreatePage() {
     setCmd(p.cmd);
     setArgs(p.args);
     setLabel('');
+    // Claude preset auto-selects structured mode; other presets use PTY.
+    setMode(p.cmd === 'claude' ? 'structured' : 'pty');
   };
+
+  // Auto-switch to PTY when command is not claude (structured only supports claude).
+  useEffect(() => {
+    if (cmd !== 'claude') {
+      setMode('pty');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmd]);
 
   const handleCreate = async () => {
     if (!server || !server.agentId) {
@@ -82,6 +93,7 @@ export function SessionCreatePage() {
           label: label.trim() || undefined,
           cols,
           rows,
+          mode,
         },
         server.agentId,
       );
@@ -144,6 +156,35 @@ export function SessionCreatePage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="form-section">
+            <div className="form-section-label">显示模式</div>
+            <div className="mode-toggle">
+              <button
+                type="button"
+                className={'mode-toggle-btn' + (mode === 'pty' ? ' is-active' : '')}
+                onClick={() => setMode('pty')}
+                disabled={cmd === 'claude'}
+              >
+                <span className="mode-toggle-icon">⬛</span>
+                <span className="mode-toggle-text">终端</span>
+                <span className="mode-toggle-desc">传统 xterm 终端渲染</span>
+              </button>
+              <button
+                type="button"
+                className={'mode-toggle-btn' + (mode === 'structured' ? ' is-active' : '')}
+                onClick={() => setMode('structured')}
+                disabled={cmd !== 'claude'}
+              >
+                <span className="mode-toggle-icon">💬</span>
+                <span className="mode-toggle-text">聊天</span>
+                <span className="mode-toggle-desc">结构化时间轴（仅 Claude）</span>
+              </button>
+            </div>
+            {cmd !== 'claude' && mode === 'structured' && (
+              <div className="field-hint">聊天模式仅支持 Claude 命令</div>
+            )}
           </div>
 
           <div className="form-section">

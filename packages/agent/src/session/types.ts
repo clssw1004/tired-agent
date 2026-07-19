@@ -5,6 +5,7 @@
 
 import type {
   SessionStatus,
+  SessionMode,
   SessionSpec,
 } from '@tired-agent/protocol';
 
@@ -23,6 +24,7 @@ export interface SessionRecord {
   cols: number;
   rows: number;
   label: string | null;
+  mode: SessionMode | null;
 }
 
 /** Build a SessionRecord from a creation spec + generated id. */
@@ -45,5 +47,6 @@ export function createSessionRecord(
     cols: spec.cols ?? 80,
     rows: spec.rows ?? 24,
     label: spec.label ?? null,
+    mode: spec.mode ?? null,
   };
 }
