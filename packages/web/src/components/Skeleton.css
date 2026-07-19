@@ -1,0 +1,28 @@
+/* Skeleton shimmer — uses CSS background-position sweep for the
+   animation. prefers-reduced-motion users get a static muted block. */
+
+.skeleton {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s linear infinite;
+}
+.skeleton-meta {
+  margin-top: 6px;
+}
+.skeleton-card {
+  /* Match real card padding; no hover/click affordance while loading. */
+  pointer-events: none;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}

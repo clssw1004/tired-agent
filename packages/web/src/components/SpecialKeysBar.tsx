@@ -17,6 +17,10 @@
  * from the underlying <input>. The soft keyboard stays open and the
  * user can keep typing immediately after a Tab or arrow press.
  *
+ * Haptic feedback: short tap = 8ms vibration, long-press = 25ms.
+ * Silently no-ops on iOS Safari (no vibrate API). Best-effort UX cue,
+ * not load-bearing.
+ *
  * Layout: button row scrolls horizontally on narrow screens — typical
  * portrait phones can't fit all 9 buttons in 360 CSS px. See CSS.
  *
@@ -58,6 +62,13 @@ const KEYS: KeyDef[] = [
   { label: 'Brk',  bytes: '\x1c',    title: 'Break — pause / debugger interrupt' },
 ];
 
+/** Best-effort haptic. Silently no-ops on iOS Safari. */
+function haptic(ms: number): void {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try { (navigator as Navigator & { vibrate: (n: number) => boolean }).vibrate(ms); } catch { /* ignore */ }
+  }
+}
+
 export function SpecialKeysBar({ onKey, disabled }: Props) {
   return (
     <div className="special-keys" role="toolbar" aria-label="Terminal special keys">
@@ -93,6 +104,7 @@ function KeyButton({ def, disabled, onKey }: { def: KeyDef; disabled?: boolean; 
     timerRef.current = window.setTimeout(() => {
       firedLongRef.current = true;
       timerRef.current = null;
+      haptic(25);
       onKey(def.longPressBytes ?? def.bytes + def.bytes);
     }, LONG_PRESS_MS);
   };
@@ -104,6 +116,7 @@ function KeyButton({ def, disabled, onKey }: { def: KeyDef; disabled?: boolean; 
     // If the long-press timer already fired, don't re-send on release.
     if (firedLongRef.current) return;
     if (disabled) return;
+    haptic(8);
     onKey(def.bytes);
   };
 
@@ -116,6 +129,7 @@ function KeyButton({ def, disabled, onKey }: { def: KeyDef; disabled?: boolean; 
       type="button"
       className="special-key"
       title={def.title}
+      aria-label={def.title ?? def.label}
       disabled={disabled}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}

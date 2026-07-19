@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Session, SessionStatus } from '@tired-agent/protocol';
+import type { Session, SessionStatus, ServerRef } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { SessionCard } from '../components/SessionCard';
+import { Modal } from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { SkeletonSessionCard } from '../components/Skeleton';
 
 type StatusFilter = 'all' | SessionStatus;
 
@@ -21,19 +24,42 @@ export function SessionListPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [pruneInfo, setPruneInfo] = useState<number | null>(null);
+  const [lastLoaded, setLastLoaded] = useState<number>(0);
+  // Modal-driven confirmation (replaces native confirm()/alert()).
+  const [pending, setPending] = useState<
+    | { kind: 'kill'; sessionId: string }
+    | { kind: 'delete'; sessionId: string }
+    | { kind: 'prune' }
+    | null
+  >(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState(false);
+  const toast = useToast();
 
-  const serverRef = server
-    ? { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token }
-    : null;
+  // IMPORTANT: memoize the ServerRef. Inline object literals get a fresh
+  // identity on every render, which would invalidate useCallback deps below
+  // and cause the auto-refresh useEffect to tear down + rebuild the
+  // setInterval on every parent re-render — visible as dozens of
+  // listSessions requests per second ("疯狂请求").
+  const serverRef = useMemo<ServerRef | null>(
+    () => (server
+      ? { id: server.id, name: server.name, baseUrl: server.baseUrl, token: server.token }
+      : null),
+    [server],
+  );
 
   const load = useCallback(async () => {
     if (!serverRef || !agentId) return;
+    setLoading(true);
     try {
       const list = await transport.listSessions(serverRef, agentId);
       setSessions(list);
       setError(null);
+      setLastLoaded(Date.now());
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }, [serverRef, agentId]);
 
@@ -43,40 +69,68 @@ export function SessionListPage() {
     return () => clearInterval(t);
   }, [load]);
 
+  // Tick to refresh the "updated Xs ago" label without re-fetching.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const timeSinceLoaded = lastLoaded
+    ? (() => {
+        const s = Math.max(0, Math.floor((Date.now() - lastLoaded) / 1000));
+        if (s < 60) return `${s}s ago`;
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+        return `${Math.floor(s / 3600)}h ago`;
+      })()
+    : null;
+
   const handleKill = async (sessionId: string) => {
     if (!serverRef || !agentId) return;
-    if (!confirm('Kill this session? The process will be terminated.')) return;
-    try {
-      await transport.killSession(serverRef, sessionId, agentId);
-      await load();
-    } catch (e) {
-      alert((e as Error).message);
-    }
+    setPending({ kind: 'kill', sessionId });
   };
 
   const handleDelete = async (sessionId: string) => {
-    if (!serverRef) return;
-    if (!confirm('Delete this (already exited) session? Log file is removed too.')) return;
-    try {
-      await transport.deleteSession(serverRef, sessionId, agentId);
-      await load();
-    } catch (e) {
-      alert((e as Error).message);
-    }
+    // Same guard as handleKill — must have BOTH serverRef AND agentId before
+    // hitting the manager proxy. Without agentId the SPA would call
+    // /v1/sessions/:id directly, which has no manager route and returns 404
+    // (or worse, leaks the manager URL into an unrelated handler).
+    if (!serverRef || !agentId) return;
+    setPending({ kind: 'delete', sessionId });
   };
 
   const handlePrune = async () => {
-    if (!serverRef) return;
-    if (!confirm('Drop all sessions whose last activity is older than 24 hours?')) return;
-    setLoading(true);
+    if (!serverRef || !agentId) return;
+    setPending({ kind: 'prune' });
+  };
+
+  const confirmPending = async () => {
+    if (!pending || !serverRef || !agentId) {
+      setPending(null);
+      return;
+    }
+    setBusyAction(true);
+    setModalError(null);
     try {
-      const r = await transport.pruneSessions(serverRef, 24, agentId);
-      setPruneInfo(r.removed);
+      if (pending.kind === 'kill') {
+        await transport.killSession(serverRef, pending.sessionId, agentId);
+        toast.success(`Killed session ${pending.sessionId.slice(0, 8)}`);
+      } else if (pending.kind === 'delete') {
+        await transport.deleteSession(serverRef, pending.sessionId, agentId);
+        toast.success('Session log deleted');
+      } else if (pending.kind === 'prune') {
+        const r = await transport.pruneSessions(serverRef, 24, agentId);
+        setPruneInfo(r.removed);
+        toast.success(`Cleaned ${r.removed} stale session${r.removed === 1 ? '' : 's'}`);
+      }
+      setPending(null);
       await load();
     } catch (e) {
-      alert((e as Error).message);
+      const msg = (e as Error).message;
+      setModalError(msg);
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      setBusyAction(false);
     }
   };
 
@@ -133,17 +187,22 @@ export function SessionListPage() {
           </div>
         )}
 
-        <div className="toolbar" style={{ marginBottom: 16, gap: 6 }}>
+        <div className="toolbar session-toolbar" style={{ marginBottom: 16, gap: 6 }}>
           {(['all', 'starting', 'running', 'exited'] as StatusFilter[]).map((s) => (
             <button
               key={s}
-              className={statusFilter === s ? '' : 'btn-ghost'}
+              className={'filter-pill' + (statusFilter === s ? ' is-active' : '')}
               onClick={() => setStatusFilter(s)}
             >
-              {s} {counts[s] > 0 && <span style={{ opacity: 0.6 }}>({counts[s]})</span>}
+              {s} {counts[s] > 0 && <span className="filter-count">{counts[s]}</span>}
             </button>
           ))}
           <span style={{ flex: 1 }} />
+          {timeSinceLoaded && (
+            <span className="refresh-indicator" title={`Last refresh: ${new Date(lastLoaded).toLocaleTimeString()}`}>
+              {loading ? <span className="refresh-spinner" /> : '⟳'} {timeSinceLoaded}
+            </span>
+          )}
           <button
             className="btn-cancel"
             onClick={handlePrune}
@@ -154,7 +213,15 @@ export function SessionListPage() {
           </button>
         </div>
 
-        {visible.length === 0 && !error && (
+        {visible.length === 0 && !error && loading && (
+          <>
+            <SkeletonSessionCard />
+            <SkeletonSessionCard />
+            <SkeletonSessionCard />
+          </>
+        )}
+
+        {visible.length === 0 && !error && !loading && (
           <div className="empty">
             <div className="empty-icon">⌨️</div>
             <div className="empty-text">
@@ -178,6 +245,36 @@ export function SessionListPage() {
           />
         ))}
       </div>
+
+      <Modal
+        open={pending !== null}
+        intent={pending?.kind === 'prune' ? 'danger' : 'danger'}
+        icon={pending?.kind === 'kill' ? '⚠️' : pending?.kind === 'delete' ? '🗑️' : '🧹'}
+        title={
+          pending?.kind === 'kill'
+            ? 'Kill this session?'
+            : pending?.kind === 'delete'
+              ? 'Delete session log?'
+              : 'Clean stale sessions?'
+        }
+        description={
+          pending?.kind === 'kill'
+            ? 'The running process will be terminated and removed from the list.'
+            : pending?.kind === 'delete'
+              ? 'Removes the database row and the on-disk output log. Cannot be undone.'
+              : 'Drops all sessions that have been inactive for more than 24 hours.'
+        }
+        confirmLabel={busyAction ? 'Working…' : 'Confirm'}
+        cancelLabel="Cancel"
+        onConfirm={confirmPending}
+        onCancel={() => { if (!busyAction) { setPending(null); setModalError(null); } }}
+      />
+      {modalError && pending && (
+        <div className="error-banner" style={{ marginTop: 12 }}>
+          <span>{modalError}</span>
+          <button onClick={() => setModalError(null)}>✕</button>
+        </div>
+      )}
     </div>
   );
 }

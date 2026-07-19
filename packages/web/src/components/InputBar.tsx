@@ -85,12 +85,12 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
 
   const handleCompositionStart = (e: React.CompositionEvent<HTMLInputElement>) => {
     composingRef.current = true;
-    preCompositionValueRef.current = e.target.value;
+    preCompositionValueRef.current = e.currentTarget.value;
   };
 
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
     composingRef.current = false;
-    const next = e.target.value;
+    const next = e.currentTarget.value;
     // Emit the entire committed delta from where composition started.
     // This is the only path that fires for IME users — intermediate
     // onChange events are skipped while composing.
@@ -99,11 +99,12 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const next = e.target.value;
+    const next = e.currentTarget.value;
     // Skip while IME is composing — the intermediate text isn't final.
     // Also skip if the browser already flagged this event as composing
     // (covers browsers that don't fire compositionstart for autocorrect).
-    if (composingRef.current || e.nativeEvent.isComposing) {
+    const native = e.nativeEvent as InputEvent;
+    if (composingRef.current || native.isComposing) {
       setValue(next);
       return;
     }
@@ -115,7 +116,8 @@ export function InputBar({ disabled, sending, placeholder, onChange, onEnter }: 
     // While composing, do NOT forward special keys — Tab/arrows during
     // IME input would be sent to the underlying program and corrupt the
     // composition state.
-    if (composingRef.current || e.nativeEvent.isComposing) return;
+    const native = e.nativeEvent as unknown as InputEvent;
+    if (composingRef.current || native.isComposing) return;
 
     // Special keys that <input> doesn't reflect in `value`: arrows, escape,
     // tab, ctrl+*, function keys. Translate to terminal bytes.
