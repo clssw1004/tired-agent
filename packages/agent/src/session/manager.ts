@@ -52,17 +52,11 @@ export class SessionManager {
 
       // Structured mode: inject Claude CLI stream-json flags so the output
       // is NDJSON lines instead of TUI terminal escape sequences.
-      if (record.mode === 'structured') {
-        args = [
-          '--output-format', 'stream-json',
-          '--input-format', 'stream-json',
-          '--include-partial-messages',
-          ...args,
-        ];
-        // Update stored args so replay and inspection see the real command.
-        this.storage.update({ id, args });
-        record.args = args;
-      }
+      // Note: Structured mode is currently a rendering enhancement on the web
+      // side. The agent spawns Claude in normal PTY mode (same as PTY mode).
+      // NDJSON stream-json parsing will come in a future phase — it requires
+      // Claude's -p/--print mode which is a single-turn process model, not
+      // compatible with the persistent PTY session model we use here.
 
       // On Windows, bare command names (no extension, no path separators)
       // need to go through `cmd.exe /c` so that PATHEXT is respected.
