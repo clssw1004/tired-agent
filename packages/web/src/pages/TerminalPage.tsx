@@ -4,6 +4,7 @@ import type { ServerRef, Session } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { ChatContainer } from '../components/ChatContainer';
+import { ClaudeChatView } from '../components/ClaudeChatView';
 
 export function TerminalPage() {
   const { id, sid } = useParams<{ id: string; sid: string }>();
@@ -52,17 +53,31 @@ export function TerminalPage() {
     );
   }
 
+  const sharedProps = {
+    serverRef: serverRef ?? { id: '', name: '', baseUrl: '', token: '' },
+    agentId: agentId ?? '',
+    sessionId: sid!,
+    onBack: () => server && navigate(`/servers/${server.id}`),
+  };
+
+  // Persistent (chat) mode uses a completely independent component.
+  if (session?.mode === 'persistent') {
+    return (
+      <ClaudeChatView
+        {...sharedProps}
+        sessionLabel={session?.label || 'Claude'}
+      />
+    );
+  }
+
   return (
     <ChatContainer
-      serverRef={serverRef ?? { id: '', name: '', baseUrl: '', token: '' }}
-      agentId={agentId ?? ''}
-      sessionId={sid!}
+      {...sharedProps}
       sessionStatus={session?.status ?? 'starting'}
       sessionLabel={session?.label || session?.cmd || '…'}
       sessionCmd={session?.cmd ?? ''}
       sessionArgs={session?.args ?? []}
       sessionMode={session?.mode}
-      onBack={() => server && navigate(`/servers/${server.id}`)}
     />
   );
 }

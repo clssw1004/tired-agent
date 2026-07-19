@@ -54,22 +54,14 @@ const live = new Map<string, LiveSession>();
 export class SessionManager {
   constructor(private readonly storage: Storage) {}
 
-  /** Create a new session. For structured mode, no PTY is spawned yet. */
+  /** Create a new session. */
   async create(spec: SessionSpec): Promise<SessionRecord> {
     const id = randomUUID();
     const record = createSessionRecord(id, spec);
     this.storage.insert(record);
 
-    // Structured mode: just create the record, PTY starts on first write().
     if (record.mode === 'persistent') {
-      const liveSession: LiveSession = {
-        record,
-        pty: null,
-        subscribers: new Set(),
-      };
-      live.set(id, liveSession);
-      log.info({ sessionId: id, cmd: record.cmd, mode: 'persistent' }, 'structured session created');
-      return record;
+      return this._createPersistent(id, record);
     }
 
     // PTY mode: spawn immediately.
@@ -88,7 +80,7 @@ export class SessionManager {
     }
   }
 
-  /** Send input to a session. For structured, spawns PTY if not running. */
+  /** Send input to a session. */
   write(id: string, data: Uint8Array): void {
     const s = live.get(id);
     if (!s) throw new Error(`Session ${id} not found`);
@@ -98,7 +90,7 @@ export class SessionManager {
       return;
     }
 
-    // PTY mode: write directly.
+    // PTY mode: write raw bytes directly.
     if (!s.pty) throw new Error(`Session ${id} is not running`);
     s.pty.write(Buffer.from(data).toString('utf8'));
   }
@@ -167,21 +159,62 @@ export class SessionManager {
     return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  // ── Structured mode internals ────────────────────────────────────────
+  // ── Persistent mode internals ─────────────────────────────────────────
 
-  /** Handle write() for structured sessions: spawn PTY per turn. */
+  /** Create a persistent (chat) session: record only, no PTY yet. */
+  private _createPersistent(id: string, record: SessionRecord): SessionRecord {
+    const liveSession: LiveSession = {
+      record,
+      pty: null,
+      subscribers: new Set(),
+    };
+    live.set(id, liveSession);
+    log.info({ sessionId: id, cmd: record.cmd, mode: 'persistent' }, 'persistent session created');
+    return record;
+  }
+
+  /**
+   * Handle write() for persistent sessions.
+   *
+   * Input bytes are expected to be a JSON line (StructuredInput):
+   *   {"type":"message","content":"hello","executionMode":"auto"}
+   *   {"type":"interrupt"}
+   */
   private _structuredWrite(s: LiveSession, id: string, data: Uint8Array): void {
-    const text = Buffer.from(data).toString('utf8');
+    const text = Buffer.from(data).toString('utf8').trim();
+    if (!text) return;
 
-    // Check if a PTY turn is already in progress.
+    let input: Record<string, unknown>;
+    try {
+      input = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new Error('Invalid JSON input for persistent session');
+    }
+
+    switch (input.type) {
+      case 'message':
+        this._handlePersistentMessage(s, id, input);
+        break;
+      case 'interrupt':
+        this._handlePersistentInterrupt(s, id);
+        break;
+      default:
+        throw new Error(`Unknown input type: ${input.type}`);
+    }
+  }
+
+  /** Handle a user message: spawn a short-lived Claude process. */
+  private _handlePersistentMessage(s: LiveSession, id: string, input: Record<string, unknown>): void {
     if (s.pty) {
-      // Busy — queue the data or reject. For now, reject.
       throw new Error('Session is busy processing the previous message');
     }
 
-    // Build args: -p mode with stream-json output, plus --resume if we have a Claude session.
+    const content = String(input.content ?? '');
+    if (!content) throw new Error('Message content is empty');
+
+    // Build args: -p with prompt, stream-json output, optional --resume.
     const args = [
-      '-p',
+      '-p', content,
       '--output-format', 'stream-json',
       '--verbose',
     ];
@@ -189,20 +222,31 @@ export class SessionManager {
       args.push('--resume', s.claudeSessionId);
     }
 
-    // Spawn a short-lived PTY for this turn.
     try {
-      this._spawnPtyForStructured(s, id, args, text);
+      this._spawnPersistentPty(s, id, args);
     } catch (err) {
-      log.error({ err, sessionId: id }, 'failed to spawn PTY for structured turn');
+      log.error({ err, sessionId: id }, 'failed to spawn PTY for persistent turn');
       throw new Error(`Failed to process message: ${(err as Error).message}`);
     }
   }
 
-  /** Spawn a Claude PTY for one structured turn. */
-  private _spawnPtyForStructured(s: LiveSession, id: string, args: string[], inputText: string): void {
+  /** Handle interrupt: kill the currently running PTY. */
+  private _handlePersistentInterrupt(s: LiveSession, id: string): void {
+    if (!s.pty) return; // nothing to interrupt
+    log.info({ sessionId: id }, 'interrupting persistent turn');
+    this._killPty(s.pty, s.record.pid);
+    s.pty = null;
+    this.storage.update({ id, pid: null });
+
+    const rec = this.storage.get(id)!;
+    s.record = rec;
+    this.broadcast(s, { type: 'state', record: rec });
+  }
+
+  /** Spawn a Claude PTY for one turn. On exit, session stays alive. */
+  private _spawnPersistentPty(s: LiveSession, id: string, args: string[]): void {
     const file = process.platform === 'win32' ? 'cmd.exe' : 'claude';
     const spawnArgs = process.platform === 'win32' ? ['/c', 'claude', ...args] : args;
-    const logDir = this.storage.list().length > 0 ? 'persistent' : 'persistent';
 
     const pty = spawn(file, spawnArgs, {
       env: buildEnv(null),
@@ -214,7 +258,6 @@ export class SessionManager {
     s.pty = pty;
     this.storage.update({ id, pid: pty.pid });
 
-    // Buffer for NDJSON parsing (extract claudeSessionId).
     let outputBuf = '';
 
     pty.onData((data: string) => {
@@ -225,7 +268,6 @@ export class SessionManager {
       this.broadcast(s, { type: 'output', offset: newOffset - bytes.length, data: bytes });
       this.broadcast(s, { type: 'state', record: updated });
 
-      // Try to extract claude session_id from NDJSON.
       outputBuf += data;
       const sid = extractClaudeSessionId(outputBuf);
       if (sid) {
@@ -237,15 +279,11 @@ export class SessionManager {
       s.pty = null;
       this.storage.update({ id, pid: null });
 
-      // Broadcast state (still 'running') so SSE knows the turn is done.
       const rec = this.storage.get(id)!;
       s.record = rec;
       this.broadcast(s, { type: 'state', record: rec });
-      log.info({ sessionId: id, claudeSessionId: s.claudeSessionId }, 'structured turn complete');
+      log.info({ sessionId: id, claudeSessionId: s.claudeSessionId }, 'persistent turn complete');
     });
-
-    // Write the user's message as stdin.
-    pty.write(inputText + '\n');
   }
 
   // ── Common helpers ───────────────────────────────────────────────────

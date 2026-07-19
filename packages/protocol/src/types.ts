@@ -26,6 +26,37 @@ export type SessionStatus = 'starting' | 'running' | 'exited';
 export type SessionMode = 'process' | 'persistent';
 
 /**
+ * Execution mode for persistent (chat) sessions — controls how Claude
+ * handles tool invocations and edits.
+ *
+ * - `'auto'`: Claude executes tools automatically without asking.
+ * - `'manual'`: Claude asks before every tool invocation.
+ * - `'plan'`: Claude produces a plan first, then executes on approval.
+ */
+export type ExecutionMode = 'auto' | 'manual' | 'plan';
+
+/**
+ * Structured input message for persistent sessions.
+ *
+ * Unlike PTY mode which sends raw bytes, persistent sessions send
+ * typed JSON messages that the agent interprets. This makes the
+ * protocol extensible: new message types (interrupt, config, etc.)
+ * can be added without breaking existing clients.
+ */
+export interface StructuredUserMessage {
+  type: 'message';
+  content: string;
+  /** @default 'auto' */
+  executionMode?: ExecutionMode;
+}
+
+export interface StructuredInterrupt {
+  type: 'interrupt';
+}
+
+export type StructuredInput = StructuredUserMessage | StructuredInterrupt;
+
+/**
  * Specification for creating a new session.
  * Mirrors the request body of `POST /v1/sessions`.
  */
@@ -51,6 +82,11 @@ export interface SessionSpec {
    * @default 'process'
    */
   mode?: SessionMode;
+  /**
+   * Execution mode for tool permissions (persistent sessions only).
+   * @default 'auto'
+   */
+  executionMode?: ExecutionMode;
 }
 
 /**

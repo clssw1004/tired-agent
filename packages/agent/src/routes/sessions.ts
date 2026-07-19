@@ -26,6 +26,7 @@ const SessionSpecSchema: z.ZodType<SessionSpec> = z.object({
   rows: z.number().int().min(1).max(200).optional().default(24),
   label: z.string().optional(),
   mode: z.enum(['process', 'persistent']).optional().default('process'),
+  executionMode: z.enum(['auto', 'manual', 'plan']).optional().default('auto'),
 });
 
 const ResizeSchema = z.object({
