@@ -17,7 +17,7 @@ import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -98,6 +98,8 @@ async function run() {
         name: opts.name || hostname(),
         registerString,
       };
+      // Ensure the data directory exists before writing PID file or starting.
+      mkdirSync(opts.dataDir, { recursive: true });
       writeFileSync(join(opts.dataDir, 'agent.pid'), String(process.pid), 'utf-8');
       await main(cfg);
     });
