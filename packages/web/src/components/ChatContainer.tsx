@@ -93,6 +93,8 @@ export function ChatContainer({
   const termRef = useRef<TerminalHandle>(null);
   const rendererRef = useRef<AgentRenderer>(new GenericPtyRenderer());
   const lastChunkAtRef = useRef(0);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [, force] = useState(0);
   const sessionRef = useRef({ cmd: '', args: [] as string[] });
 
@@ -109,21 +111,15 @@ export function ChatContainer({
   // ── PTY writer: shared by xterm.onUserInput, InputBar.onChange, and
   //    InterventionBar.onResponse. Everything funnels through one path so
   //    there is exactly one place to log / debounce / handle backpressure.
-  //
-  //    In structured mode, user input is wrapped as a JSON message before
-  //    being written to the PTY since the Claude CLI reads stdin as NDJSON.
   const writeBytes = useCallback(async (data: string) => {
     if (disabled || !data) return;
     try {
       const transport = createHttpSseTransport();
-      const payload = mode === 'persistent'
-        ? ENCODER.encode(JSON.stringify({ type: 'message', content: data }) + '\n')
-        : ENCODER.encode(data);
-      await transport.sendInput(serverRef, sessionId, payload, agentId);
+      await transport.sendInput(serverRef, sessionId, ENCODER.encode(data), agentId);
     } catch (err) {
       setTransportError((err as Error).message);
     }
-  }, [disabled, serverRef, sessionId, agentId, mode]);
+  }, [disabled, serverRef, sessionId, agentId]);
 
   // ── Copy selected text from xterm to clipboard. Mobile Safari doesn't
   //    surface a copy button on long-press selection by default, so we
@@ -154,6 +150,16 @@ export function ChatContainer({
     setSelection('');
   }, []);
 
+  // Select the renderer based on session command (independent of connection).
+  useEffect(() => {
+    if (!sessionCmd) return;
+    const selected = defaultRegistry().select(sessionCmd, sessionArgs, '');
+    selected.reset();
+    rendererRef.current = selected;
+    sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionCmd, sessionArgs.join('|')]);
+
   // Connect, replay history, subscribe to live chunks.
   useEffect(() => {
     const transport = createHttpSseTransport();
@@ -165,25 +171,17 @@ export function ChatContainer({
         const replay = await transport.fetchOutput(serverRef, sessionId, 0, undefined, agentId);
         if (cancelled) return;
 
-        const preview = replay.chunks
-          .slice(0, 4)
-          .map((c) => decodeText(base64ToBytes(c.data)))
-          .join('');
-
-        const renderer = defaultRegistry().select(sessionCmd, sessionArgs, preview);
-        renderer.reset();
-        rendererRef.current = renderer;
-        sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
+        // Use the renderer from the sessionCmd effect, or fallback.
+        const currentMode = modeRef.current;
 
         // Replay logic differs by mode.
-        if (mode === 'persistent') {
-          // Structured mode: replay NDJSON lines through the renderer.
+        if (currentMode === 'persistent') {
           let accumulated = '';
           for (const chunk of replay.chunks) {
             accumulated += decodeText(base64ToBytes(chunk.data));
           }
           if (accumulated) {
-            const output = renderer.processChunk(accumulated, {
+            const output = rendererRef.current.processChunk(accumulated, {
               session: sessionRef.current,
               streaming: false,
               segmentContent: [],
@@ -213,10 +211,9 @@ export function ChatContainer({
             if (!text) return;
             lastChunkAtRef.current = Date.now();
 
-            if (mode === 'persistent') {
-              // Structured mode: feed through renderer, update contents.
+            if (modeRef.current === 'persistent') {
               setStreaming(true);
-              const output = renderer.processChunk(text, {
+              const output = rendererRef.current.processChunk(text, {
                 session: sessionRef.current,
                 streaming: true,
                 segmentContent: [],
@@ -225,11 +222,10 @@ export function ChatContainer({
                 setStructuredContents([...output.contents]);
               }
             } else {
-              // PTY mode: write directly to xterm.js.
               const wasAtBottom = termRef.current?.isAtBottom() ?? true;
               termRef.current?.write(text);
               if (wasAtBottom) termRef.current?.scrollToBottom();
-              renderer.processChunk(text, {
+              rendererRef.current.processChunk(text, {
                 session: sessionRef.current,
                 streaming: true,
                 segmentContent: [],
@@ -237,9 +233,7 @@ export function ChatContainer({
             }
           },
           onState: (session: Session) => {
-            // Sync mode from server-side session metadata.
             if (session.mode) setMode(session.mode);
-            // Update streaming state based on session status.
             if (session.status === 'running') setStreaming(true);
             if (session.status === 'exited') setStreaming(false);
           },
@@ -254,9 +248,8 @@ export function ChatContainer({
     return () => {
       cancelled = true;
       subscription?.close();
-      rendererRef.current.reset();
     };
-  }, [sessionId, serverRef.id, agentId, mode]);
+  }, [sessionId, serverRef.id, agentId]);
 
   // If session metadata loads asynchronously (TerminalPage fetches Session),
   // re-select the renderer with the actual cmd/args.

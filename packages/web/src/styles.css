@@ -1401,6 +1401,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -1422,6 +1423,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 
 .render-area-structured {
   background: transparent;
+  overflow: hidden;
 }
 
 /* ── User message bubble ────────────────────────────────────────────── */
