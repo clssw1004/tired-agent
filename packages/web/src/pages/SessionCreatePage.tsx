@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { ServerRef } from '@tired-agent/protocol';
+import type { ServerRef, SessionMode } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { useToast } from '../components/Toast';
@@ -39,6 +39,7 @@ export function SessionCreatePage() {
   const [label, setLabel] = useState('');
   const [cols, setCols] = useState(80);
   const [rows, setRows] = useState(24);
+  const [mode, setMode] = useState<SessionMode>('process');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +54,19 @@ export function SessionCreatePage() {
     setCmd(p.cmd);
     setArgs(p.args);
     setLabel('');
+    // Claude preset auto-selects structured mode; other presets use PTY.
+    setMode(p.cmd === 'claude' ? 'persistent' : 'process');
   };
+
+  // When command changes away from claude, persistent mode is unavailable.
+  // Auto-switch to process mode so the user doesn't accidentally create a
+  // persistent session with a non-claude command (which would fail).
+  useEffect(() => {
+    if (cmd !== 'claude') {
+      setMode('process');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmd]);
 
   const handleCreate = async () => {
     if (!server || !server.agentId) {
@@ -82,6 +95,7 @@ export function SessionCreatePage() {
           label: label.trim() || undefined,
           cols,
           rows,
+          mode,
         },
         server.agentId,
       );
@@ -144,6 +158,34 @@ export function SessionCreatePage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="form-section">
+            <div className="form-section-label">生命周期</div>
+            <div className="mode-toggle">
+              <button
+                type="button"
+                className={'mode-toggle-btn' + (mode === 'process' ? ' is-active' : '')}
+                onClick={() => setMode('process')}
+              >
+                <span className="mode-toggle-icon">⬛</span>
+                <span className="mode-toggle-text">随进程</span>
+                <span className="mode-toggle-desc">进程结束即自动终止</span>
+              </button>
+              <button
+                type="button"
+                className={'mode-toggle-btn' + (mode === 'persistent' ? ' is-active' : '')}
+                onClick={() => setMode('persistent')}
+                disabled={cmd !== 'claude'}
+              >
+                <span className="mode-toggle-icon">💬</span>
+                <span className="mode-toggle-text">持久</span>
+                <span className="mode-toggle-desc">需用户手动 Kill（仅 claude）</span>
+              </button>
+            </div>
+            {cmd !== 'claude' && (
+              <div className="field-hint">持久模式仅支持 claude 命令</div>
+            )}
           </div>
 
           <div className="form-section">

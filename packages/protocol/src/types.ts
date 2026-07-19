@@ -10,6 +10,53 @@
 export type SessionStatus = 'starting' | 'running' | 'exited';
 
 /**
+ * Session lifecycle mode.
+ *
+ * - `'process'` (default): session lifecycle is tied to the underlying
+ *   process. When the PTY exits, the session auto-terminates. Suitable
+ *   for one-shot commands and interactive shells where the session
+ *   lifespan matches a single process invocation.
+ *
+ * - `'persistent'`: the session is a container that outlives individual
+ *   process invocations. Each user message spawns a short-lived process;
+ *   when it finishes, the session stays alive for the next message.
+ *   Suitable for chat/assistant sessions where conversation spans
+ *   multiple turns. Only a user Kill removes the session.
+ */
+export type SessionMode = 'process' | 'persistent';
+
+/**
+ * Execution mode for persistent (chat) sessions — controls how Claude
+ * handles tool invocations and edits.
+ *
+ * - `'auto'`: Claude executes tools automatically without asking.
+ * - `'manual'`: Claude asks before every tool invocation.
+ * - `'plan'`: Claude produces a plan first, then executes on approval.
+ */
+export type ExecutionMode = 'auto' | 'manual' | 'plan';
+
+/**
+ * Structured input message for persistent sessions.
+ *
+ * Unlike PTY mode which sends raw bytes, persistent sessions send
+ * typed JSON messages that the agent interprets. This makes the
+ * protocol extensible: new message types (interrupt, config, etc.)
+ * can be added without breaking existing clients.
+ */
+export interface StructuredUserMessage {
+  type: 'message';
+  content: string;
+  /** @default 'auto' */
+  executionMode?: ExecutionMode;
+}
+
+export interface StructuredInterrupt {
+  type: 'interrupt';
+}
+
+export type StructuredInput = StructuredUserMessage | StructuredInterrupt;
+
+/**
  * Specification for creating a new session.
  * Mirrors the request body of `POST /v1/sessions`.
  */
@@ -28,6 +75,18 @@ export interface SessionSpec {
   rows?: number;
   /** Human-friendly label shown in the client UI. */
   label?: string;
+  /**
+   * Session lifecycle mode.
+   * `'process'` (default) — session follows process lifecycle.
+   * `'persistent'` — session lives until user kill.
+   * @default 'process'
+   */
+  mode?: SessionMode;
+  /**
+   * Execution mode for tool permissions (persistent sessions only).
+   * @default 'auto'
+   */
+  executionMode?: ExecutionMode;
 }
 
 /**
@@ -53,6 +112,8 @@ export interface Session {
   cols: number;
   rows: number;
   label?: string;
+  /** @default 'process' */
+  mode?: SessionMode;
 }
 
 /**
@@ -190,6 +251,47 @@ export interface ContentCommand {
   parsed: string;
 }
 
+// ── Structured mode (stream-json) content types ─────────────────────────
+
+export interface ContentUserMessage {
+  type: 'userMessage';
+  text: string;
+}
+
+export interface ContentToolUse {
+  type: 'toolUse';
+  name: string;
+  /** JSON-stringified tool parameters. */
+  input: string;
+  /** Unique identifier for correlating with tool result. */
+  toolUseId: string;
+  /** Whether the tool has completed (result received). */
+  completed?: boolean;
+}
+
+export interface ContentToolResult {
+  type: 'toolResult';
+  toolUseId: string;
+  content: string;
+  /** MIME hint for rendering (e.g. "text/markdown", "image/png"). */
+  mimeType?: string;
+  /** Whether the tool call resulted in an error. */
+  isError?: boolean;
+}
+
+export interface ContentStreamEvent {
+  type: 'streamEvent';
+  text: string;
+  /** True = append to the last assistant text, false = start new. */
+  append: boolean;
+}
+
+export interface ContentUsage {
+  type: 'usage';
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export type StructuredContent =
   | ContentText
   | ContentCode
@@ -198,7 +300,12 @@ export type StructuredContent =
   | ContentTable
   | ContentLink
   | ContentImage
-  | ContentCommand;
+  | ContentCommand
+  | ContentUserMessage
+  | ContentToolUse
+  | ContentToolResult
+  | ContentStreamEvent
+  | ContentUsage;
 
 /** Error response shape used by the server. */
 export interface ErrorResponse {

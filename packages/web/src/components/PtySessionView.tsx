@@ -1,17 +1,20 @@
 /**
- * ChatContainer — top-level shell for a single session's UI.
+ * PtySessionView — top-level shell for a single PTY session's UI.
+ *
+ * This is the **process** (PTY) mode component. Persistent/chat mode uses
+ * ClaudeChatView instead.
  *
  * Layout (top to bottom):
  *   1. Header           — title + status dot.
  *   2. Status strip     — live / typing / connecting / error / offline indicator.
  *   3. RenderArea       — TerminalView (xterm.js) for every CLI session.
- *   4. InterventionBar  — appears above the input when the terminal is waiting
- *                         on a [y/N] prompt (Claude's permission dialogs, etc.).
- *   5. InputBar         — mobile soft-keyboard passthrough. Each keystroke is
- *                         shipped verbatim to the PTY; Enter is just `\r`,
- *                         same as any other character.
+ *   4. PtyInterventionBar  — appears above the input when the terminal is waiting
+ *                            on a [y/N] prompt (Claude's permission dialogs, etc.).
+ *   5. PtyInputBar         — mobile soft-keyboard passthrough. Each keystroke is
+ *                            shipped verbatim to the PTY; Enter is just `\r`,
+ *                            same as any other character.
  *
- * Keyboard model: xterm.js owns the full TUI surface. The InputBar exists
+ * Keyboard model: xterm.js owns the full TUI surface. PtyInputBar exists
  * ONLY to summon the mobile soft keyboard (xterm's canvas does not). On
  * desktop users click the terminal; on mobile they tap the input field.
  * Both paths converge on the same `writeBytes(data)` that ships bytes to
@@ -22,13 +25,15 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ServerRef, SessionStatus } from '@tired-agent/protocol';
+import type { ServerRef, Session, SessionStatus, SessionMode } from '@tired-agent/protocol';
 import { createHttpSseTransport } from '@tired-agent/protocol';
+import type { StructuredContent } from '@tired-agent/protocol';
 import { defaultRegistry, initRenderers, GenericPtyRenderer } from '../renderer';
 import type { AgentRenderer } from '../renderer';
 import { TerminalView, type TerminalHandle } from './render-views';
-import { InterventionBar } from './InterventionBar';
-import { InputBar } from './InputBar';
+import { ChatTimeline } from './ChatTimeline';
+import { PtyInterventionBar } from './PtyInterventionBar';
+import { PtyInputBar } from './PtyInputBar';
 import { SpecialKeysBar } from './SpecialKeysBar';
 
 interface Props {
@@ -40,6 +45,9 @@ interface Props {
   sessionLabel: string;
   sessionCmd: string;
   sessionArgs: string[];
+  /** Rendering mode. 'pty' (default) → xterm terminal; 'persistent' → chat timeline. */
+  /** Session lifecycle mode. 'process' → follows process; 'persistent' → user-managed. */
+  sessionMode?: SessionMode;
   onBack?: () => void;
 }
 
@@ -55,7 +63,7 @@ function decodeText(input: Uint8Array): string {
 
 initRenderers();
 
-export function ChatContainer({
+export function PtySessionView({
   serverRef,
   agentId,
   sessionId,
@@ -63,6 +71,7 @@ export function ChatContainer({
   sessionLabel,
   sessionCmd,
   sessionArgs,
+  sessionMode,
   onBack,
 }: Props) {
   const [connected, setConnected] = useState(false);
@@ -73,9 +82,22 @@ export function ChatContainer({
   const [atBottom, setAtBottom] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  // Structured mode state
+  const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
+  const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
+  const [streaming, setStreaming] = useState(false);
+
+  // Sync mode from prop when session loads asynchronously (TerminalPage
+  // fetches the Session object after mount, so sessionMode starts undefined).
+  useEffect(() => {
+    if (sessionMode) setMode(sessionMode);
+  }, [sessionMode]);
+
   const termRef = useRef<TerminalHandle>(null);
   const rendererRef = useRef<AgentRenderer>(new GenericPtyRenderer());
   const lastChunkAtRef = useRef(0);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [, force] = useState(0);
   const sessionRef = useRef({ cmd: '', args: [] as string[] });
 
@@ -89,8 +111,8 @@ export function ChatContainer({
     return () => window.clearInterval(t);
   }, []);
 
-  // ── PTY writer: shared by xterm.onUserInput, InputBar.onChange, and
-  //    InterventionBar.onResponse. Everything funnels through one path so
+  // ── PTY writer: shared by xterm.onUserInput, PtyInputBar.onChange, and
+  //    PtyInterventionBar.onResponse. Everything funnels through one path so
   //    there is exactly one place to log / debounce / handle backpressure.
   const writeBytes = useCallback(async (data: string) => {
     if (disabled || !data) return;
@@ -131,6 +153,16 @@ export function ChatContainer({
     setSelection('');
   }, []);
 
+  // Select the renderer based on session command (independent of connection).
+  useEffect(() => {
+    if (!sessionCmd) return;
+    const selected = defaultRegistry().select(sessionCmd, sessionArgs, '');
+    selected.reset();
+    rendererRef.current = selected;
+    sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionCmd, sessionArgs.join('|')]);
+
   // Connect, replay history, subscribe to live chunks.
   useEffect(() => {
     const transport = createHttpSseTransport();
@@ -142,23 +174,36 @@ export function ChatContainer({
         const replay = await transport.fetchOutput(serverRef, sessionId, 0, undefined, agentId);
         if (cancelled) return;
 
-        const preview = replay.chunks
-          .slice(0, 4)
-          .map((c) => decodeText(base64ToBytes(c.data)))
-          .join('');
+        // Use the renderer from the sessionCmd effect, or fallback.
+        const currentMode = modeRef.current;
 
-        const renderer = defaultRegistry().select(sessionCmd, sessionArgs, preview);
-        renderer.reset();
-        rendererRef.current = renderer;
-        sessionRef.current = { cmd: sessionCmd, args: sessionArgs };
-
-        let seeded = '';
-        for (const chunk of replay.chunks) {
-          seeded += decodeText(base64ToBytes(chunk.data));
-        }
-        if (seeded) {
-          termRef.current?.write(seeded);
-          lastChunkAtRef.current = Date.now();
+        // Replay logic differs by mode.
+        if (currentMode === 'persistent') {
+          let accumulated = '';
+          for (const chunk of replay.chunks) {
+            accumulated += decodeText(base64ToBytes(chunk.data));
+          }
+          if (accumulated) {
+            const output = rendererRef.current.processChunk(accumulated, {
+              session: sessionRef.current,
+              streaming: false,
+              segmentContent: [],
+            });
+            if (output && output.contents.length > 0) {
+              setStructuredContents([...output.contents]);
+            }
+            lastChunkAtRef.current = Date.now();
+          }
+        } else {
+          // PTY mode: write replay bytes to xterm.js.
+          let seeded = '';
+          for (const chunk of replay.chunks) {
+            seeded += decodeText(base64ToBytes(chunk.data));
+          }
+          if (seeded) {
+            termRef.current?.write(seeded);
+            lastChunkAtRef.current = Date.now();
+          }
         }
 
         setConnected(true);
@@ -168,19 +213,33 @@ export function ChatContainer({
             const text = decodeText(c.data);
             if (!text) return;
             lastChunkAtRef.current = Date.now();
-            // Respect manual scroll: if the user has scrolled up to read
-            // history, don't yank them back to the bottom on each chunk —
-            // the "jump to latest" pill lets them return when ready.
-            const wasAtBottom = termRef.current?.isAtBottom() ?? true;
-            termRef.current?.write(text);
-            if (wasAtBottom) termRef.current?.scrollToBottom();
-            renderer.processChunk(text, {
-              session: sessionRef.current,
-              streaming: true,
-              segmentContent: [],
-            });
+
+            if (modeRef.current === 'persistent') {
+              setStreaming(true);
+              const output = rendererRef.current.processChunk(text, {
+                session: sessionRef.current,
+                streaming: true,
+                segmentContent: [],
+              });
+              if (output && output.contents.length > 0) {
+                setStructuredContents([...output.contents]);
+              }
+            } else {
+              const wasAtBottom = termRef.current?.isAtBottom() ?? true;
+              termRef.current?.write(text);
+              if (wasAtBottom) termRef.current?.scrollToBottom();
+              rendererRef.current.processChunk(text, {
+                session: sessionRef.current,
+                streaming: true,
+                segmentContent: [],
+              });
+            }
           },
-          onState: () => { /* status pill driven by sessionStatus prop */ },
+          onState: (session: Session) => {
+            if (session.mode) setMode(session.mode);
+            if (session.status === 'running') setStreaming(true);
+            if (session.status === 'exited') setStreaming(false);
+          },
           onError: (e) => setTransportError(e.message),
         }, agentId);
         if (cancelled) subscription.close();
@@ -192,7 +251,6 @@ export function ChatContainer({
     return () => {
       cancelled = true;
       subscription?.close();
-      rendererRef.current.reset();
     };
   }, [sessionId, serverRef.id, agentId]);
 
@@ -209,11 +267,16 @@ export function ChatContainer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionCmd, sessionArgs.join('|'), connected]);
 
-  // Busy detection — the underlying CLI is actively working (spinner frames,
-  // Claude "esc to interrupt" hint, etc.). We dim the InputBar in this state
-  // so the user understands they can't type yet, and we keep SpecialKeysBar
-  // fully active so Ctrl+C remains a one-tap interrupt.
+  // Busy detection — are we waiting for Claude to finish generating?
+  // PTY mode: detect spinner frames / "esc to interrupt" in xterm buffer.
+  // Structured mode: track streaming state from SSE events.
   useEffect(() => {
+    if (mode === 'persistent') {
+      // In structured mode, streaming state is set by the SSE onChunk/onState handlers.
+      setBusy(streaming);
+      return;
+    }
+    // PTY mode: scan xterm buffer for spinner / interrupt hints.
     if (!termReady) return;
     const handle = termRef.current;
     if (!handle) return;
@@ -229,7 +292,7 @@ export function ChatContainer({
     };
     check();
     return handle.onWrite(check);
-  }, [termReady]);
+  }, [termReady, mode, streaming]);
 
   // ── Status derivation ──────────────────────────────────────────────────
   const typing = lastChunkAtRef.current > 0
@@ -270,63 +333,75 @@ export function ChatContainer({
       </div>
 
       <div
-        className="render-area"
-        onClick={() => termRef.current?.focus()}
+        className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
+        onClick={() => mode !== 'persistent' && termRef.current?.focus()}
       >
-        <TerminalView
-          ref={termRef}
-          onReady={() => setTermReady(true)}
-          onUserInput={(data) => void writeBytes(data)}
-          onSelectionChange={(text) => setSelection(text)}
-          onScroll={(ab) => setAtBottom(ab)}
-        />
-        {selection && (
-          <button
-            type="button"
-            className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
-            onClick={(e) => { e.stopPropagation(); void copySelection(); }}
-            aria-label="Copy selection"
-          >
-            <span aria-hidden>📋</span>
-            <span>{copyFlash ? '已复制' : '复制'}</span>
-          </button>
-        )}
-        {!atBottom && (
-          <button
-            type="button"
-            className="jump-to-bottom"
-            onClick={(e) => {
-              e.stopPropagation();
-              termRef.current?.scrollToBottom();
-              setAtBottom(true);
-            }}
-            aria-label="Jump to latest output"
-          >
-            ↓ 跳到最新
-          </button>
-        )}
-      </div>
+        {mode === 'persistent' ? (
+          <ChatTimeline
+            contents={structuredContents}
+            streaming={streaming}
+          />
+        ) : (
+          <>
+            <TerminalView
+              ref={termRef}
+              onReady={() => setTermReady(true)}
+              onUserInput={(data) => void writeBytes(data)}
+              onSelectionChange={(text) => setSelection(text)}
+              onScroll={(ab) => setAtBottom(ab)}
+            />
+            {selection && (
+              <button
+                type="button"
+                className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
+                onClick={(e) => { e.stopPropagation(); void copySelection(); }}
+                aria-label="Copy selection"
+              >
+                <span aria-hidden>📋</span>
+                <span>{copyFlash ? '已复制' : '复制'}</span>
+              </button>
+            )}
+            {!atBottom && (
+              <button
+                type="button"
+                className="jump-to-bottom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  termRef.current?.scrollToBottom();
+                  setAtBottom(true);
+                }}
+                aria-label="Jump to latest output"
+              >
+                ↓ 跳到最新
+              </button>
+            )}
+            </>
+          )}
+        </div>
 
-      <InterventionBar
-        key={termReady ? 'ready' : 'pending'}
-        terminal={termReady ? termRef.current : null}
+      <PtyInterventionBar
+        key={mode === 'persistent' ? 'persistent' : termReady ? 'ready' : 'pending'}
+        terminal={mode === 'persistent' ? null : termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
       />
 
       <SpecialKeysBar
         disabled={disabled}
+        structured={mode === 'persistent'}
         onKey={(bytes) => void writeBytes(bytes)}
       />
 
-      <InputBar
+      <PtyInputBar
         disabled={disabled}
         sending={false}
         placeholder={
           disabled
-            ? 'Session has exited'
+            ? '会话已结束'
             : busy
               ? 'Claude 处理中…'
-              : '输入框 — 手机键盘直通'
+              : mode === 'persistent'
+                ? '输入消息…'
+                : '输入框 — 手机键盘直通'
         }
         onChange={(data) => void writeBytes(data)}
       />

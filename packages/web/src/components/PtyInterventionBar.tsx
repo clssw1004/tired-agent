@@ -1,5 +1,5 @@
 /**
- * InterventionSheet — surfaces "do you want to do X?" prompts from the
+ * PtyInterventionBar — surfaces "do you want to do X?" prompts from the
  * terminal as a mobile-native bottom action sheet.
  *
  * Subscribes to the TerminalView's onWrite hook and re-scans the last few
@@ -69,7 +69,7 @@ function detectPrompt(lines: string[]): PendingPrompt | null {
   return null;
 }
 
-export function InterventionBar({ terminal, onResponse }: Props) {
+export function PtyInterventionBar({ terminal, onResponse }: Props) {
   const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
   const [customReply, setCustomReply] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);

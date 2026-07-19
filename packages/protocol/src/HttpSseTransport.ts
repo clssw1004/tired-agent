@@ -29,7 +29,6 @@ const RECONNECT_MAX_MS = 30_000;
 function authHeaders(ref: ServerRef): HeadersInit {
   return {
     Authorization: `Bearer ${ref.token}`,
-    'Content-Type': 'application/json',
     Accept: 'application/json',
   };
 }
@@ -226,7 +225,7 @@ export class HttpSseTransport implements Transport {
   async createSession(ref: ServerRef, spec: SessionSpec, agentId?: string): Promise<Session> {
     const res = await this.fetchImpl(this.agentsUrl(ref, agentId), {
       method: 'POST',
-      headers: authHeaders(ref),
+      headers: { ...authHeaders(ref), 'Content-Type': 'application/json' },
       body: JSON.stringify(spec),
     });
     await checkOk(res, 'createSession');
@@ -287,7 +286,7 @@ export class HttpSseTransport implements Transport {
     const body: ResizeRequest = { cols, rows };
     const res = await this.fetchImpl(
       this.sessionUrl(ref, id, '/resize', agentId),
-      { method: 'POST', headers: authHeaders(ref), body: JSON.stringify(body) },
+      { method: 'POST', headers: { ...authHeaders(ref), 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     );
     await checkOk(res, 'resizeSession');
   }
@@ -340,7 +339,7 @@ export class HttpSseTransport implements Transport {
     const body: InputRequest = { data: bytesToBase64(data) };
     const res = await this.fetchImpl(
       this.sessionUrl(ref, id, '/input', agentId),
-      { method: 'POST', headers: authHeaders(ref), body: JSON.stringify(body) },
+      { method: 'POST', headers: { ...authHeaders(ref), 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     );
     await checkOk(res, 'sendInput');
   }
@@ -356,7 +355,7 @@ export class HttpSseTransport implements Transport {
   async addAgent(ref: ServerRef, agent: { name: string; baseUrl: string; token: string }): Promise<{ id: string }> {
     const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/agents`, {
       method: 'POST',
-      headers: authHeaders(ref),
+      headers: { ...authHeaders(ref), 'Content-Type': 'application/json' },
       body: JSON.stringify(agent),
     });
     await checkOk(res, 'addAgent');

@@ -33,6 +33,10 @@ import type { StorageKind } from './session/storage.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
+  // Ensure the data directory exists before any file operations (logs,
+  // credentials, .env, SQLite DB). This is idempotent — safe on every start.
+  await mkdir(cfg.dataDir, { recursive: true });
+
   // Initialise the logger from config (file + rotation in daemon mode).
   initLogger({ logDir: cfg.logDir, level: cfg.logLevel });
 
