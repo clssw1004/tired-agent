@@ -14,6 +14,9 @@
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 
 // Load .env from the manager package root, regardless of process.cwd().
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +30,20 @@ import { log } from './util/log.js';
 
 async function main(argv: string[]) {
   const cfg = loadConfig(argv);
+
+  // Auto-generate admin token if not configured, persist to .env.
+  if (!cfg.token || cfg.token.length < 8) {
+    const generated = randomBytes(16).toString('hex');
+    cfg.token = generated;
+    await persistToken(cfg.token);
+    console.log(
+      '[tired-agent] No CLSSW_MANAGER_TOKEN configured; auto-generated one.\n' +
+      `  Token: ${generated}\n` +
+      `  Saved to packages/manager/.env\n` +
+      '  Set CLSSW_MANAGER_TOKEN=<value> in .env to pin it.',
+    );
+  }
+
   validateConfig(cfg);
 
   const storage = createStorage(cfg.dataDir);
@@ -63,3 +80,34 @@ main(process.argv).catch((err) => {
   log.fatal({ err }, 'unhandled startup error');
   process.exit(1);
 });
+
+/** Write the auto-generated token to the manager's .env file. */
+async function persistToken(token: string): Promise<void> {
+  try {
+    const envPath = resolve(__dirname, '../.env');
+    let existing = '';
+    if (existsSync(envPath)) {
+      existing = await readFile(envPath, 'utf-8');
+    }
+    const lines = existing.split('\n');
+    const out: string[] = [];
+    let found = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('CLSSW_MANAGER_TOKEN=')) {
+        out.push(`CLSSW_MANAGER_TOKEN=${token}`);
+        found = true;
+      } else {
+        out.push(line);
+      }
+    }
+    if (!found) {
+      out.push(`CLSSW_MANAGER_TOKEN=${token}`);
+    }
+    // Ensure parent directory exists before writing.
+    await mkdir(dirname(envPath), { recursive: true });
+    await writeFile(envPath, out.join('\n') + '\n', 'utf-8');
+  } catch (err) {
+    console.error('[tired-agent] Failed to persist token to .env:', (err as Error).message);
+  }
+}
