@@ -79,6 +79,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 function openEventSource(
   url: string,
   headers: Record<string, string>,
+  initialFrom: number,
   onEvent: (ev: StreamEvent) => void,
   onError: (err: Error) => void,
   agentId?: string,
@@ -87,14 +88,20 @@ function openEventSource(
   let attempt = 0;
   let es: EventSource | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // EventSource does not natively support custom headers (browsers & RN),
-  // so we pass the token via a query string for SSE only. REST calls use
-  // the Authorization header. The server accepts both for SSE endpoints.
-  const urlWithToken = appendQueryToken(url, headers.Authorization ?? '');
+  // Highest byte offset consumed so far. On reconnect we resume from here so
+  // the server does not replay bytes we already have (avoids duplicates).
+  let currentFrom = Math.max(0, initialFrom);
 
   const connect = () => {
     if (stopped) return;
+
+    // EventSource does not natively support custom headers (browsers & RN),
+    // so we pass the token via a query string for SSE only. REST calls use
+    // the Authorization header. The server accepts both for SSE endpoints.
+    // `from` resumes the stream at the offset we've already consumed.
+    const u = new URL(url);
+    u.searchParams.set('from', String(currentFrom));
+    const urlWithToken = appendQueryToken(u.toString(), headers.Authorization ?? '');
     es = new EventSource(urlWithToken);
 
     // The server emits *named* SSE events (event: output / state / heartbeat).
@@ -129,6 +136,11 @@ function openEventSource(
               } as StreamEvent;
           }
         })();
+        // Advance the resume offset past this chunk so a reconnect won't
+        // replay it.
+        if (ev.type === 'output') {
+          currentFrom = Math.max(currentFrom, ev.offset + base64ToBytes(ev.data).length);
+        }
         onEvent(ev);
       } catch (err) {
         onError(new Error(`Failed to parse SSE event: ${(err as Error).message}`));
@@ -313,11 +325,13 @@ export class HttpSseTransport implements Transport {
     id: string,
     handlers: SubscribeHandlers,
     agentId?: string,
+    fromOffset = 0,
   ): Subscription {
     const url = this.sessionUrl(ref, id, '/stream', agentId);
     const connection = openEventSource(
       url,
       { Authorization: `Bearer ${ref.token}` },
+      fromOffset,
       (ev) => {
         if (ev.type === 'output') {
           handlers.onChunk({

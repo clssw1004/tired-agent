@@ -1,0 +1,46 @@
+# tired-agent — systemd service unit (Linux)
+#
+# Runs the agent in the foreground under systemd, which supervises it:
+# auto-restart on crash and start on boot.
+#
+# ── Install ────────────────────────────────────────────────────────────
+#   1. Adjust User=, ExecStart= (path to the `tired-agent` binary), and
+#      any --register / --port flags below.
+#   2. Copy this file to /etc/systemd/system/tired-agent.service
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now tired-agent
+#
+# ── Manage ─────────────────────────────────────────────────────────────
+#   systemctl status tired-agent
+#   systemctl restart tired-agent
+#   journalctl -u tired-agent -f      # follow logs
+#
+# Notes:
+#  - Do NOT pass --daemon / -D here. systemd owns the process lifecycle;
+#    the agent must stay in the foreground so systemd can supervise it.
+#  - If installed globally via `npm i -g @tired-agent/agent`, ExecStart is
+#    typically /usr/bin/tired-agent or the path from `which tired-agent`.
+
+[Unit]
+Description=tired-agent PTY executor daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change to the user that should own agent sessions and data dir.
+User=CHANGE_ME
+# Full path to the tired-agent binary. Find it with: which tired-agent
+ExecStart=/usr/bin/tired-agent start
+# Data dir defaults to ~/.tiredagent; override via environment if needed.
+# Environment=CLSSW_DATA=/var/lib/tiredagent
+# Environment=PORT=8444
+
+Restart=always
+RestartSec=3
+# Give the process time to flush logs / kill PTYs on stop.
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

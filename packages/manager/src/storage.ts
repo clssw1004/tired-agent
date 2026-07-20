@@ -64,11 +64,12 @@ export interface Storage {
    * Register (or re-register) an agent.
    *
    * When `agentKey` is provided and an agent with that key exists, the
-   * entry is *updated* (baseUrl + token regenerated) — this is the
-   * dedup / re-registration path.  If agentKey is unknown but the
-   * same `baseUrl` already exists, that row is updated in place — the
-   * same machine re-registering from a fresh install. Without either
-   * match a fresh entry is created.
+   * entry is *updated* (baseUrl + name) and its existing token is reused —
+   * this is the dedup / re-registration path. Reusing the token keeps the
+   * agent's bearer stable so prior managers/clients keep working. If
+   * agentKey is unknown but the same `baseUrl` already exists, that row is
+   * updated in place (token also preserved). Without either match a fresh
+   * entry with a new token is created.
    */
   registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string };
   // ── sessions ──
@@ -200,24 +201,26 @@ export function createStorage(dataDir: string): Storage {
     if (agentKey) {
       const existing = findAgentByKey(agentKey);
       if (existing) {
-        const token = randomBytes(32).toString('hex');
+        // Reuse the existing token — the agent adopts whatever token we
+        // return as its bearer, so regenerating on every re-registration
+        // (e.g. an agent restart) would lock out previously-connected
+        // managers/clients. Only refresh baseUrl + name.
         db().prepare(
-          'UPDATE manager_agents SET baseUrl = ?, token = ?, name = ? WHERE agent_key = ?',
-        ).run(baseUrl, token, name, agentKey);
-        return { id: existing.id, token };
+          'UPDATE manager_agents SET baseUrl = ?, name = ? WHERE agent_key = ?',
+        ).run(baseUrl, name, agentKey);
+        return { id: existing.id, token: existing.token };
       }
     }
 
     // Fallback: same baseUrl already registered → treat as same machine
     // even when agentKey is missing (fresh install, wiped data dir).
-    // Update in place: keep id stable, regenerate token, refresh name.
+    // Update in place: keep id + token stable, refresh name.
     const sameUrl = findAgentByBaseUrl(baseUrl);
     if (sameUrl) {
-      const token = randomBytes(32).toString('hex');
       db().prepare(
-        'UPDATE manager_agents SET token = ?, name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key) WHERE id = ?',
-      ).run(token, name, agentKey ?? '', sameUrl.id);
-      return { id: sameUrl.id, token };
+        'UPDATE manager_agents SET name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key) WHERE id = ?',
+      ).run(name, agentKey ?? '', sameUrl.id);
+      return { id: sameUrl.id, token: sameUrl.token };
     }
 
     // First registration: create fresh.

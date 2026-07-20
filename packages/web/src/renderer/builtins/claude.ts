@@ -136,7 +136,18 @@ export class ClaudeRenderer implements AgentRenderer {
           this._handleSystemResult(event as Record<string, unknown>);
         }
         break;
+      case 'tired-agent/user':
+        // Namespaced event injected by the agent to persist the user's prompt
+        // into the session log, so the full conversation replays on reopen.
+        this._handleTiredUser(event);
+        break;
     }
+  }
+
+  /** Render a persisted user prompt (agent-injected) as a user bubble. */
+  private _handleTiredUser(ev: Record<string, unknown>): void {
+    const text = String(ev.content ?? '');
+    if (text) this._contents.push({ type: 'userMessage', text });
   }
 
   // ── Assistant ────────────────────────────────────────────────────────

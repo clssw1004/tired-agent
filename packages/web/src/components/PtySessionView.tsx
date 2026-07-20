@@ -241,7 +241,7 @@ export function PtySessionView({
             if (session.status === 'exited') setStreaming(false);
           },
           onError: (e) => setTransportError(e.message),
-        }, agentId);
+        }, agentId, replay.upTo);
         if (cancelled) subscription.close();
       } catch (err) {
         if (!cancelled) setTransportError((err as Error).message);

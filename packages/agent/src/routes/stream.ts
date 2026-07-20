@@ -70,77 +70,88 @@ export function registerStreamRoute(
       // Check from= query param for replay
       const fromOffset = Math.max(0, Number(req.query.from ?? '0'));
 
-      // SSE headers
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'X-Accel-Buffering': 'no', // disable nginx buffering
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-      });
+      try {
+        // SSE headers
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'X-Accel-Buffering': 'no', // disable nginx buffering
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+        });
 
-      // Flush headers immediately so EventSource can connect
-      reply.raw.flushHeaders();
+        // Flush headers immediately so EventSource can connect
+        reply.raw.flushHeaders();
 
-      // Log format/upgrades along with the connect event so curl+grep is easy.
-      log.debug({ sessionId: id, fromOffset, format: cfg.sseFormat, debug: cfg.sseDebugLog }, 'SSE client connected');
+        // Log format/upgrades along with the connect event so curl+grep is easy.
+        log.debug({ sessionId: id, fromOffset, format: cfg.sseFormat, debug: cfg.sseDebugLog }, 'SSE client connected');
 
-      // ── Replay missed output ────────────────────────────────────────────
-      if (fromOffset < session.byteOffset) {
-        const result = storage.readOutput(id, fromOffset);
-        for (const chunk of result.chunks) {
-          const dataBytes = new Uint8Array(chunk.data);
-          if (cfg.sseDebugLog) {
-            log.debug({ replay: true, off: chunk.offset, len: dataBytes.byteLength, dump: hexAsciiDump(dataBytes) }, 'sse-replay-output');
+        // ── Replay missed output ────────────────────────────────────────────
+        if (fromOffset < session.byteOffset) {
+          const result = storage.readOutput(id, fromOffset);
+          for (const chunk of result.chunks) {
+            const dataBytes = new Uint8Array(chunk.data);
+            if (cfg.sseDebugLog) {
+              log.debug({ replay: true, off: chunk.offset, len: dataBytes.byteLength, dump: hexAsciiDump(dataBytes) }, 'sse-replay-output');
+            }
+            reply.raw.write(
+              `event: output\ndata: ${JSON.stringify({
+                offset: chunk.offset,
+                data: encodeChunk(dataBytes, cfg.sseFormat),
+              })}\n\n`,
+            );
           }
-          reply.raw.write(
-            `event: output\ndata: ${JSON.stringify({
-              offset: chunk.offset,
-              data: encodeChunk(dataBytes, cfg.sseFormat),
-            })}\n\n`,
-          );
+          // Also emit current state after replay
+          const current = manager.get(id);
+          if (current) {
+            reply.raw.write(
+              `event: state\ndata: ${JSON.stringify(current)}\n\n`,
+            );
+          }
         }
-        // Also emit current state after replay
-        const current = manager.get(id);
-        if (current) {
-          reply.raw.write(
-            `event: state\ndata: ${JSON.stringify(current)}\n\n`,
-          );
-        }
+
+        // ── Heartbeat ───────────────────────────────────────────────────────
+        const heartbeatTimer = setInterval(() => {
+          if (reply.raw.writableEnded) { clearInterval(heartbeatTimer); return; }
+          try {
+            reply.raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+          } catch { clearInterval(heartbeatTimer); }
+        }, HEARTBEAT_INTERVAL_MS);
+
+        // ── Subscribe to live events ────────────────────────────────────────
+        const unsubscribe = manager.subscribe(id, (ev) => {
+          if (reply.raw.writableEnded) return;
+          try {
+            if (ev.type === 'output') {
+              if (cfg.sseDebugLog) {
+                log.debug({ off: ev.offset, len: ev.data.byteLength, dump: hexAsciiDump(ev.data) }, 'sse-live-output');
+              }
+              reply.raw.write(
+                `event: output\ndata: ${JSON.stringify({
+                  offset: ev.offset,
+                  data: encodeChunk(ev.data, cfg.sseFormat),
+                })}\n\n`,
+              );
+            } else if (ev.type === 'state') {
+              reply.raw.write(`event: state\ndata: ${JSON.stringify(ev.record)}\n\n`);
+            }
+          } catch (err) {
+            log.error({ err, sessionId: id }, 'error writing SSE event');
+          }
+        });
+
+        // ── Cleanup on close ───────────────────────────────────────────────
+        req.raw.on('close', () => {
+          unsubscribe();
+          clearInterval(heartbeatTimer);
+          log.debug({ sessionId: id }, 'SSE client disconnected');
+        });
+
+        log.debug({ sessionId: id, fromOffset }, 'SSE client connected');
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'SSE stream handler error');
+        try { if (!reply.raw.writableEnded) reply.raw.end(); } catch { /* ignore */ }
       }
-
-      // ── Heartbeat ───────────────────────────────────────────────────────
-      const heartbeatTimer = setInterval(() => {
-        if (reply.raw.writableEnded) { clearInterval(heartbeatTimer); return; }
-        reply.raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
-      }, HEARTBEAT_INTERVAL_MS);
-
-      // ── Subscribe to live events ────────────────────────────────────────
-      const unsubscribe = manager.subscribe(id, (ev) => {
-        if (reply.raw.writableEnded) return;
-        if (ev.type === 'output') {
-          if (cfg.sseDebugLog) {
-            log.debug({ off: ev.offset, len: ev.data.byteLength, dump: hexAsciiDump(ev.data) }, 'sse-live-output');
-          }
-          reply.raw.write(
-            `event: output\ndata: ${JSON.stringify({
-              offset: ev.offset,
-              data: encodeChunk(ev.data, cfg.sseFormat),
-            })}\n\n`,
-          );
-        } else if (ev.type === 'state') {
-          reply.raw.write(`event: state\ndata: ${JSON.stringify(ev.record)}\n\n`);
-        }
-      });
-
-      // ── Cleanup on close ───────────────────────────────────────────────
-      req.raw.on('close', () => {
-        unsubscribe();
-        clearInterval(heartbeatTimer);
-        log.debug({ sessionId: id }, 'SSE client disconnected');
-      });
-
-      log.debug({ sessionId: id, fromOffset }, 'SSE client connected');
     },
   );
 }

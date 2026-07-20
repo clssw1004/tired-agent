@@ -87,12 +87,19 @@ export interface Transport {
     agentId?: string,
   ): Promise<FetchOutputResult>;
 
-  /** Open a live subscription (SSE). */
+  /**
+   * Open a live subscription (SSE).
+   *
+   * `fromOffset` is the byte offset the client already has (e.g. after an
+   * initial `fetchOutput`). The stream replays from there and then follows
+   * live, so history is not delivered twice. Defaults to 0 (full replay).
+   */
   subscribe(
     ref: ServerRef,
     id: string,
     handlers: SubscribeHandlers,
     agentId?: string,
+    fromOffset?: number,
   ): Subscription;
 
   /** Send input bytes to the session's PTY. */
