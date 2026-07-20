@@ -23,9 +23,24 @@
  * The internal `value` state mirrors what the user has typed so the
  * input visually updates — required to keep mobile keyboards happy
  * (composition events, autocorrect, etc.).
+ *
+ * Modifier integration: when {@link modifiers} has Ctrl and/or Shift in a
+ * non-'off' mode (toggled via the SpecialKeysBar button), the next
+ * non-modifier keystroke consumes that state and emits the
+ * corresponding bytes (Ctrl+letter → control byte, Shift+letter →
+ * uppercase, Ctrl+Shift+Tab → back-tab, etc.). `oneShot` modifiers are
+ * auto-reverted to 'off' on consumption; `sticky` ones persist until
+ * the user taps the modifier button again. See
+ * docs/superpowers/specs/2026-07-20-pty-modifier-keys-design.md.
  */
 
 import { useRef, useEffect, useState } from 'react';
+import {
+  SPECIAL_KEY_MODIFIER_SPECS,
+  resolveBytes,
+  type ModifierKey,
+  type ModifierState,
+} from './SpecialKeysBar';
 
 interface Props {
   disabled: boolean;
@@ -37,9 +52,17 @@ interface Props {
   onChange: (data: string) => void;
   /** Called when Enter is pressed (so the host can flush its own buffers). */
   onEnter?: () => void;
+  /** Modifier key state lifted from PtySessionView. When any modifier is
+   *  non-'off', the next keystroke is intercepted and routed through
+   *  {@link resolveBytes} / control-byte logic instead of the native
+   *  `<input>` flow. */
+  modifiers?: ModifierState;
+  /** Auto-revert a modifier from 'oneShot' → 'off' after it's been
+   *  consumed. Called once per keystroke that used the modifier. */
+  onConsumeModifier?: (key: ModifierKey) => void;
 }
 
-export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter }: Props) {
+export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter, modifiers, onConsumeModifier }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
 
@@ -119,6 +142,44 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter 
     const native = e.nativeEvent as unknown as InputEvent;
     if (composingRef.current || native.isComposing) return;
 
+    // ── Modifier interception ────────────────────────────────────────
+    // When any modifier is active (oneShot or sticky via SpecialKeysBar
+    // toggle), intercept the next keystroke, compute the modified bytes,
+    // consume one-shot modifiers, and ship the result.
+    if (modifiers && (modifiers.ctrl !== 'off' || modifiers.shift !== 'off')) {
+      // 1) Special keys with modifier variants (Tab + arrows) — the same
+      //    spec map the button bar uses, so behavior stays consistent.
+      const spec = SPECIAL_KEY_MODIFIER_SPECS[e.key];
+      if (spec) {
+        e.preventDefault();
+        onChange(resolveBytes(spec, modifiers));
+        onConsumeModifier?.('ctrl');
+        onConsumeModifier?.('shift');
+        return;
+      }
+      // 2) Single-character printable letter: Ctrl→control byte,
+      //    Shift→uppercase, both→control byte (shift has no effect on
+      //    control codes). Reject if a physical modifier is also held —
+      //    those keys go through the existing native handler below.
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        let bytes: string;
+        if (modifiers.ctrl !== 'off') {
+          const code = e.key.toUpperCase().charCodeAt(0);
+          bytes = (code >= 0x40 && code <= 0x5f)
+            ? String.fromCharCode(code - 0x40)
+            : e.key;
+        } else {
+          bytes = e.key;
+        }
+        if (modifiers.shift !== 'off') bytes = bytes.toUpperCase();
+        onChange(bytes);
+        onConsumeModifier?.('ctrl');
+        onConsumeModifier?.('shift');
+        return;
+      }
+    }
+
     // Special keys that <input> doesn't reflect in `value`: arrows, escape,
     // tab, ctrl+*, function keys. Translate to terminal bytes.
     const map: Record<string, string> = {
@@ -140,7 +201,9 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter 
       }
       return;
     }
-    // Ctrl+<key> → control byte.
+    // Physical Ctrl+<key> → control byte. (Toggle-Ctrl is handled above;
+    // when both physical Ctrl and a toggle modifier are active we let
+    // this branch handle it once and skip the toggle path.)
     if (e.ctrlKey && e.key.length === 1) {
       const code = e.key.toUpperCase().charCodeAt(0);
       if (code >= 0x40 && code <= 0x5f) {

@@ -34,7 +34,12 @@ import { TerminalView, type TerminalHandle } from './render-views';
 import { ChatTimeline } from './ChatTimeline';
 import { PtyInterventionBar } from './PtyInterventionBar';
 import { PtyInputBar } from './PtyInputBar';
-import { SpecialKeysBar } from './SpecialKeysBar';
+import {
+  SpecialKeysBar,
+  type ModifierKey,
+  type ModifierMode,
+  type ModifierState,
+} from './SpecialKeysBar';
 
 interface Props {
   serverRef: ServerRef;
@@ -55,6 +60,12 @@ const TYPING_TIMEOUT_MS = 500;
 const TICK_INTERVAL_MS = 250;
 const DECODER = new TextDecoder('utf-8', { fatal: false });
 const ENCODER = new TextEncoder();
+
+/** Modifier keys start inactive. Toggle buttons in SpecialKeysBar flip
+ *  these to 'oneShot' (short press, consumed by next non-modifier key) or
+ *  'sticky' (long press, persists until tapped again). See
+ *  docs/superpowers/specs/2026-07-20-pty-modifier-keys-design.md. */
+const INITIAL_MODIFIER_STATE: ModifierState = { ctrl: 'off', shift: 'off' };
 
 /** TextDecoder.decode wrapper — newer TS lib types prefer BufferSource overloads. */
 function decodeText(input: Uint8Array): string {
@@ -86,6 +97,27 @@ export function PtySessionView({
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
   const [streaming, setStreaming] = useState(false);
+
+  // ── Modifier key state (PTY mode). Lifted to this host so both
+  //    SpecialKeysBar (button bar) and PtyInputBar (system keyboard via
+  //    <input>) see the same toggle state.
+  const [modifiers, setModifiers] = useState<ModifierState>(INITIAL_MODIFIER_STATE);
+
+  /** Set the modifier explicitly to {@link mode}. Used by SpecialKeysBar
+   *  after the user taps a modifier button (short or long press). */
+  const setModifier = useCallback((key: ModifierKey, mode: ModifierMode) => {
+    setModifiers((prev) => (prev[key] === mode ? prev : { ...prev, [key]: mode }));
+  }, []);
+
+  /** Drop a modifier from 'oneShot' back to 'off'. Called by PtyInputBar
+   *  after the modifier has been applied to a real keystroke. No-op for
+   *  'sticky' (must be cleared explicitly by tapping the button again). */
+  const consumeModifier = useCallback((key: ModifierKey) => {
+    setModifiers((prev) => {
+      if (prev[key] !== 'oneShot') return prev;
+      return { ...prev, [key]: 'off' };
+    });
+  }, []);
 
   // Sync mode from prop when session loads asynchronously (TerminalPage
   // fetches the Session object after mount, so sessionMode starts undefined).
@@ -388,6 +420,8 @@ export function PtySessionView({
       <SpecialKeysBar
         disabled={disabled}
         structured={mode === 'persistent'}
+        modifiers={modifiers}
+        onSetModifier={setModifier}
         onKey={(bytes) => void writeBytes(bytes)}
       />
 
@@ -404,6 +438,8 @@ export function PtySessionView({
                 : '输入框 — 手机键盘直通'
         }
         onChange={(data) => void writeBytes(data)}
+        modifiers={modifiers}
+        onConsumeModifier={consumeModifier}
       />
     </div>
   );
