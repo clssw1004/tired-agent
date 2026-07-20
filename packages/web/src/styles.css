@@ -1157,6 +1157,32 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 .special-key:active { transform: scale(0.96); background: rgba(51,154,240,0.18); }
 .special-key:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Modifier buttons (Ctrl / Shift): three visual states matching the
+   ModifierMode in PtySessionView. `off` is the default .special-key
+   style above. `oneShot` pulses briefly to signal "next key consumes
+   me". `sticky` stays solidly highlighted until tapped off again. */
+.special-key.modifier.is-one-shot {
+  border-color: var(--accent);
+  background: rgba(51,154,240,0.18);
+  animation: mod-pulse 1.2s ease-in-out infinite;
+}
+.special-key.modifier.is-sticky {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--accent), 0 2px 8px rgba(51,154,240,0.35);
+}
+.special-key.modifier.is-sticky:active { transform: scale(0.96); }
+@keyframes mod-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1;    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .special-key.modifier.is-one-shot { animation: none; opacity: 1; }
+}
+
 /* Hide on desktop — physical keyboard is available. */
 @media (min-width: 768px) {
   .special-keys { display: none; }
