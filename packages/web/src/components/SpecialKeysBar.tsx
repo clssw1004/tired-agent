@@ -318,7 +318,16 @@ function SpecialButton({ def, disabled, modifiers, onKey, onConsumeModifier }: S
       firedLongRef.current = true;
       timerRef.current = null;
       haptic(25);
-      const lb = def.longPressBytes ?? def.specs.base + def.specs.base;
+      // Compute the byte this button would send *right now*. When a
+      // modifier is active (oneShot or sticky), long-press ≡ "the same
+      // key twice" — i.e. the modified byte sent back-to-back — so a
+      // held Ctrl+c fires \x03\x03 as a hard interrupt. Without a
+      // modifier we fall back to the per-button longPressBytes (e.g.
+      // \x03\x03 for the bare `c` button without Ctrl) to preserve the
+      // original hard-kill semantic for un-modifiered hold.
+      const tap = resolveBytes(def.specs, modifiers);
+      const anyModifier = modifiers.ctrl !== 'off' || modifiers.shift !== 'off';
+      const lb = anyModifier ? tap + tap : (def.longPressBytes ?? tap + tap);
       onKey(lb);
       onConsumeModifier?.('ctrl');
       onConsumeModifier?.('shift');

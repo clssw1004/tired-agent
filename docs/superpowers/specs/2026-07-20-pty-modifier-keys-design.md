@@ -209,12 +209,23 @@ if (modifiers.ctrl !== 'off' || modifiers.shift !== 'off') {
 | 点 `↑` 时 Ctrl 激活 | 发 `\x1b[1;5A` |
 | 点 `↑` 时 Shift 激活 | 发 `\x1b[1;2A` |
 | Ctrl+Shift 同时点 `↓` | 发 `\x1b[1;6B` |
+| **Ctrl 激活时，长按 `c`** | 发 `\x03\x03`（修改字节 ×2）；Ctrl 自动消费一次 |
+| **无 modifier，长按 `c`** | 发 `\x03\x03`（沿用 `longPressBytes` 硬中断） |
+| **Shift 激活时，长按 `c`** | 发 `'CC'`（大写 c ×2） |
 | 点 `Esc`（Ctrl 激活） | 发 `\x1b`（Esc 不变） |
 | 桌面端 Chrome | `.special-keys` 隐藏 |
 
+**长按双击语义**（仅按钮栏，`SpecialKeysBar.SpecialButton`）：
+- 无 modifier 激活 → 发按钮的 `longPressBytes`（默认 `base×2`），保留旧的硬中断语义
+- modifier 激活 → 发 `resolveBytes(specs, modifiers) × 2`，即"按住当前组合键连发两次"
+- 两种情况都会消费 oneShot；sticky 不受影响
+
+> **系统键盘（`PtyInputBar`）不实现长按双击** —— 物理按键按一次就是一次。
+
 ### 兼容性
 
-- 长按 `c` / `d` 仍发 `\x03\x03` / `\x04\x04`（旧语义保留）
+- 无 modifier 时长按 `c` / `d` 仍发 `\x03\x03` / `\x04\x04`（旧语义保留）
+- modifier 激活时长按 `c` 现在发 `\x03\x03`（修改字节 ×2），与之前 `'cc'` 不同 —— 这是新引入的行为
 - 物理 Ctrl+字母仍走 `e.ctrlKey` 旧路径，与 toggle 并行
 - IME 合成期间 `composingRef` 在 `PtyInputBar.tsx:120` 早返，modifier 不消费
 - `.special-keys-structured`（结构化模式 `中断` 单键）不受影响
