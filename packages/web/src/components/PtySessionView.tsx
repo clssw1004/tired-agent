@@ -422,6 +422,7 @@ export function PtySessionView({
         structured={mode === 'persistent'}
         modifiers={modifiers}
         onSetModifier={setModifier}
+        onConsumeModifier={consumeModifier}
         onKey={(bytes) => void writeBytes(bytes)}
       />
 

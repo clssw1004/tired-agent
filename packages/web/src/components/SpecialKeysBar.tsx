@@ -168,9 +168,15 @@ interface Props {
    *  own state; SpecialKeysBar also calls this when tapping a modifier
    *  while another modifier is active (toggle-off behavior). */
   onSetModifier?: (key: ModifierKey, mode: ModifierMode) => void;
+  /** Auto-revert a modifier from 'oneShot' → 'off' after it's been
+   *  consumed by a non-modifier key (tap or long-press). Sticky
+   *  modifiers are unaffected. Wired through here so the button bar's
+   *  tap/long-press fires both the resolved bytes AND the consumption
+   *  in the same tick. */
+  onConsumeModifier?: (key: ModifierKey) => void;
 }
 
-export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier }: Props) {
+export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier, onConsumeModifier }: Props) {
   const keys = structured ? STRUCTURED_KEYS : PTY_KEYS;
   return (
     <div className={'special-keys' + (structured ? ' special-keys-structured' : '')} role="toolbar" aria-label={structured ? 'Chat controls' : 'Terminal special keys'}>
@@ -196,6 +202,7 @@ export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetMo
             disabled={disabled}
             modifiers={modifiers ?? { ctrl: 'off', shift: 'off' }}
             onKey={onKey}
+            onConsumeModifier={onConsumeModifier}
           />
         );
       })}
@@ -282,13 +289,16 @@ interface SpecialButtonProps {
   disabled?: boolean;
   modifiers: ModifierState;
   onKey: (b: string) => void;
+  /** Forwarded to consume oneShot modifiers after this button fires. */
+  onConsumeModifier?: (key: ModifierKey) => void;
 }
 
-function SpecialButton({ def, disabled, modifiers, onKey }: SpecialButtonProps) {
+function SpecialButton({ def, disabled, modifiers, onKey, onConsumeModifier }: SpecialButtonProps) {
   // Long-press logic: tap = resolveBytes(specs, modifiers); hold ≈500ms
   // = longPressBytes (or base×2). Same shape as the original KeyButton
   // but pulls modifier-adjusted bytes instead of a single hard-coded
-  // `bytes` field.
+  // `bytes` field. Both branches consume any active oneShot modifier
+  // — sticky modifiers are left alone (they persist until tapped).
   const timerRef = useRef<number | null>(null);
   const firedLongRef = useRef(false);
 
@@ -310,6 +320,8 @@ function SpecialButton({ def, disabled, modifiers, onKey }: SpecialButtonProps) 
       haptic(25);
       const lb = def.longPressBytes ?? def.specs.base + def.specs.base;
       onKey(lb);
+      onConsumeModifier?.('ctrl');
+      onConsumeModifier?.('shift');
     }, LONG_PRESS_MS);
   };
 
@@ -320,6 +332,8 @@ function SpecialButton({ def, disabled, modifiers, onKey }: SpecialButtonProps) 
     if (disabled) return;
     haptic(8);
     onKey(resolveBytes(def.specs, modifiers));
+    onConsumeModifier?.('ctrl');
+    onConsumeModifier?.('shift');
   };
 
   const handlePointerCancel = () => { cancelTimer(); };
