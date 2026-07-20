@@ -25,6 +25,11 @@ export interface SessionRecord {
   rows: number;
   label: string | null;
   mode: SessionMode | null;
+  /**
+   * Persistent (chat) mode only: Claude's internal session_id extracted from
+   * the NDJSON stream. Persisted so `--resume` survives an agent restart.
+   */
+  claudeSessionId: string | null;
 }
 
 /** Build a SessionRecord from a creation spec + generated id. */
@@ -48,5 +53,6 @@ export function createSessionRecord(
     rows: spec.rows ?? 24,
     label: spec.label ?? null,
     mode: spec.mode ?? null,
+    claudeSessionId: null,
   };
 }

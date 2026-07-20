@@ -105,7 +105,8 @@ export function ClaudeChatView({
 
         setConnected(true);
 
-        // Live SSE subscription.
+        // Live SSE subscription — resume from the offset we already replayed
+        // so history is not delivered twice.
         subscription = transport.subscribe(serverRef, sessionId, {
           onChunk: (c) => {
             const text = decodeText(c.data);
@@ -123,7 +124,7 @@ export function ClaudeChatView({
             // Status is conveyed via connected/streaming state.
           },
           onError: (e) => setTransportError(e.message),
-        }, agentId);
+        }, agentId, replay.upTo);
         if (cancelled) subscription.close();
       } catch (err) {
         if (!cancelled) setTransportError((err as Error).message);
@@ -153,9 +154,10 @@ export function ClaudeChatView({
     if (!text.trim() || !connected) return;
     const content = text.trim();
 
-    // Add user message to timeline immediately (via renderer so it persists).
-    rendererRef.current.addUserMessage(content);
-    setContents([...rendererRef.current.getContents()]);
+    // The agent records the user prompt into the session log and echoes it
+    // back over SSE, so the renderer creates the user bubble from that single
+    // source of truth (consistent between live and replay). We only clear the
+    // input and show the streaming indicator here.
     setInputText('');
     setStreaming(true);
 

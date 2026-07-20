@@ -33,6 +33,16 @@ import type { StorageKind } from './session/storage.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
+  // Register global error handlers FIRST so nothing during startup can crash
+  // the process unobserved. Strategy: log, do not exit — a daemon should stay
+  // up through transient faults (disk full, DB lock, subscriber callback errors).
+  process.on('uncaughtException', (err) => {
+    log.error({ err: err.message, stack: err.stack }, 'uncaughtException');
+  });
+  process.on('unhandledRejection', (reason) => {
+    log.error({ reason: String(reason) }, 'unhandledRejection');
+  });
+
   // Ensure the data directory exists before any file operations (logs,
   // credentials, .env, SQLite DB). This is idempotent — safe on every start.
   await mkdir(cfg.dataDir, { recursive: true });
@@ -114,13 +124,6 @@ export async function main(cfg: ServerConfig) {
   manager.startCleanupTimer();
 
   const app = await createApp(cfg, storage, manager);
-
-  process.on('uncaughtException', (err) => {
-    log.error({ err: err.message, stack: err.stack }, 'uncaughtException');
-  });
-  process.on('unhandledRejection', (reason) => {
-    log.error({ reason: String(reason) }, 'unhandledRejection');
-  });
 
   registerShutdown(app, storage, manager);
 

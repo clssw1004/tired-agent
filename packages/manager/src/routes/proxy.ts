@@ -181,9 +181,9 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   // is text/event-stream and we want zero buffering between the agent and
   // the browser. The agent's auth token rides along in the URL, matching
   // what HttpSseTransport does on the client side.
-  app.get<{ Params: { aid: string; sid: string } }>(
+  app.get<{ Params: { aid: string; sid: string }; Querystring: { from?: string } }>(
     '/v1/agents/:aid/sessions/:sid/stream',
-    async (req: FastifyRequest<{ Params: { aid: string; sid: string } }>, reply: FastifyReply) => {
+    async (req: FastifyRequest<{ Params: { aid: string; sid: string }; Querystring: { from?: string } }>, reply: FastifyReply) => {
       const { aid, sid } = req.params;
       const agent = storage.getAgent(aid);
       if (!agent) {
@@ -192,7 +192,14 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
         });
       }
 
-      const url = `${agent.baseUrl.replace(/\/+$/, '')}/v1/sessions/${encodeURIComponent(sid)}/stream?access_token=${encodeURIComponent(agent.token)}`;
+      // Forward the client's replay offset. Without this the agent defaults to
+      // from=0 and re-replays the entire log on every SSE connect — which,
+      // combined with the client's initial fetchOutput(0), renders history
+      // twice (duplicate chat bubbles).
+      const fromParam = req.query.from != null
+        ? `&from=${encodeURIComponent(String(req.query.from))}`
+        : '';
+      const url = `${agent.baseUrl.replace(/\/+$/, '')}/v1/sessions/${encodeURIComponent(sid)}/stream?access_token=${encodeURIComponent(agent.token)}${fromParam}`;
 
       let agentRes: Response;
       try {

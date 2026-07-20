@@ -150,6 +150,18 @@ tired-agent register <base64>     # One-shot register, then exit
 When `--register` is set, the agent automatically binds to `0.0.0.0` so the
 manager can reach it. Its LAN IP is auto-detected for registration.
 
+### Run as a system service (autostart + crash-restart)
+
+For production, run the agent under a service manager so it starts on boot and
+restarts on crash. Templates and install scripts live in
+[`packages/agent/service/`](packages/agent/service/README.md):
+
+- **Linux** — `tired-agent.service` (systemd, `Restart=always`)
+- **Windows** — `install-service.ps1` (nssm wrapper; schtasks fallback documented)
+
+Do not pass `--daemon` under a service manager — it owns the process lifecycle
+and the agent must stay in the foreground.
+
 ---
 
 ## 4. Development

@@ -23,7 +23,7 @@
  */
 import type { IPty } from 'node-pty';
 import { spawn as ptySpawn } from 'node-pty';
-import { spawn as procSpawn } from 'node:child_process';
+import { spawn as procSpawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { SessionSpec } from '@tired-agent/protocol';
 import type { SessionRecord } from './types.js';
@@ -213,6 +213,12 @@ export class SessionManager {
     const content = String(input.content ?? '');
     if (!content) throw new Error('Message content is empty');
 
+    // Persist the user's prompt into the same append-only log so the full
+    // conversation timeline (user + assistant) can be replayed on reopen.
+    // Uses a namespaced type to avoid colliding with Claude's own NDJSON
+    // `{"type":"user",...}` (tool_result) events.
+    this._recordUserMessage(s, id, content);
+
     // Build args: -p with prompt, stream-json output, optional --resume.
     const args = [
       '-p', content,
@@ -231,9 +237,27 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Append a user prompt to the session log as a namespaced NDJSON event and
+   * broadcast it to live subscribers, so the timeline shows the user bubble
+   * both live and on replay. Failures here must not abort the turn.
+   */
+  private _recordUserMessage(s: LiveSession, id: string, content: string): void {
+    try {
+      const line = JSON.stringify({ type: 'tired-agent/user', content, at: Date.now() }) + '\n';
+      const bytes = new TextEncoder().encode(line);
+      const newOffset = this.storage.appendOutput(id, bytes);
+      const updated = this.storage.get(id);
+      if (updated) s.record = updated;
+      this.broadcast(s, { type: 'output', offset: newOffset - bytes.length, data: bytes });
+      if (updated) this.broadcast(s, { type: 'state', record: updated });
+    } catch (err) {
+      log.error({ err, sessionId: id }, 'failed to record user message');
+    }
+  }
+
   /** Handle interrupt: kill the currently running PTY. */
-  private _handlePersistentInterrupt(s: LiveSession, id: string): void {
-    if (!s.pty) return; // nothing to interrupt
+  private _handlePersistentInterrupt(s: LiveSession, id: string): void {    if (!s.pty) return; // nothing to interrupt
     log.info({ sessionId: id }, 'interrupting persistent turn');
     this._killPty(s.pty, s.record.pid);
     s.pty = null;
@@ -270,38 +294,52 @@ export class SessionManager {
     let outputBuf = '';
 
     proc.stdout?.on('data', (buf: Buffer) => {
-      const data = buf.toString('utf8');
-      const bytes = new TextEncoder().encode(data);
-      const newOffset = this.storage.appendOutput(id, bytes);
-      const updated = this.storage.get(id)!;
-      s.record = updated;
-      this.broadcast(s, { type: 'output', offset: newOffset - bytes.length, data: bytes });
-      this.broadcast(s, { type: 'state', record: updated });
+      try {
+        const data = buf.toString('utf8');
+        const bytes = new TextEncoder().encode(data);
+        const newOffset = this.storage.appendOutput(id, bytes);
+        const updated = this.storage.get(id)!;
+        s.record = updated;
+        this.broadcast(s, { type: 'output', offset: newOffset - bytes.length, data: bytes });
+        this.broadcast(s, { type: 'state', record: updated });
 
-      outputBuf += data;
-      const sid = extractClaudeSessionId(outputBuf);
-      if (sid) {
-        s.claudeSessionId = sid;
+        outputBuf += data;
+        const sid = extractClaudeSessionId(outputBuf);
+        if (sid && sid !== s.claudeSessionId) {
+          s.claudeSessionId = sid;
+          // Persist so --resume survives an agent restart.
+          try { this.storage.update({ id, claudeSessionId: sid }); } catch { /* non-fatal */ }
+        }
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'error handling persistent stdout');
       }
     });
 
     proc.stderr?.on('data', (buf: Buffer) => {
-      // Capture stderr too (in case Claude logs errors). Tag with prefix so
-      // it's distinguishable from NDJSON.
-      const data = '[stderr] ' + buf.toString('utf8');
-      const bytes = new TextEncoder().encode(data);
-      this.storage.appendOutput(id, bytes);
-      this.broadcast(s, { type: 'output', offset: 0, data: bytes });
+      try {
+        // Capture stderr too (in case Claude logs errors). Tag with prefix so
+        // it's distinguishable from NDJSON.
+        const data = '[stderr] ' + buf.toString('utf8');
+        const bytes = new TextEncoder().encode(data);
+        this.storage.appendOutput(id, bytes);
+        this.broadcast(s, { type: 'output', offset: 0, data: bytes });
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'error handling persistent stderr');
+      }
     });
 
     proc.on('exit', (code) => {
-      s.pty = null;
-      this.storage.update({ id, pid: null });
+      try {
+        s.pty = null;
+        this.storage.update({ id, pid: null });
 
-      const rec = this.storage.get(id)!;
-      s.record = rec;
-      this.broadcast(s, { type: 'state', record: rec });
-      log.info({ sessionId: id, claudeSessionId: s.claudeSessionId, exitCode: code }, 'persistent turn complete');
+        const rec = this.storage.get(id)!;
+        s.record = rec;
+        this.broadcast(s, { type: 'state', record: rec });
+        log.info({ sessionId: id, claudeSessionId: s.claudeSessionId, exitCode: code }, 'persistent turn complete');
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'error handling persistent exit');
+      }
     });
 
     // Expose a kill() method on the fake IPty.
@@ -345,23 +383,31 @@ export class SessionManager {
     live.set(id, liveSession);
 
     pty.onData((data: string) => {
-      const bytes = new TextEncoder().encode(data);
-      const newOffset = this.storage.appendOutput(id, bytes);
-      const updated = this.storage.get(id)!;
-      liveSession.record = updated;
-      this.broadcast(liveSession, { type: 'output', offset: newOffset - bytes.length, data: bytes });
-      this.broadcast(liveSession, { type: 'state', record: updated });
+      try {
+        const bytes = new TextEncoder().encode(data);
+        const newOffset = this.storage.appendOutput(id, bytes);
+        const updated = this.storage.get(id)!;
+        liveSession.record = updated;
+        this.broadcast(liveSession, { type: 'output', offset: newOffset - bytes.length, data: bytes });
+        this.broadcast(liveSession, { type: 'state', record: updated });
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'error handling pty data');
+      }
     });
 
     pty.onExit(({ exitCode, signal }) => {
-      const finalCode = exitCode ?? (signal ? 128 + signal : null);
-      this.storage.update({
-        id, status: 'exited', exitCode: finalCode, exitedAt: Date.now(),
-      });
-      const rec = this.storage.get(id)!;
-      liveSession.record = rec;
-      this.broadcast(liveSession, { type: 'state', record: rec });
-      log.info({ sessionId: id, exitCode: finalCode }, 'session exited');
+      try {
+        const finalCode = exitCode ?? (signal ? 128 + signal : null);
+        this.storage.update({
+          id, status: 'exited', exitCode: finalCode, exitedAt: Date.now(),
+        });
+        const rec = this.storage.get(id)!;
+        liveSession.record = rec;
+        this.broadcast(liveSession, { type: 'state', record: rec });
+        log.info({ sessionId: id, exitCode: finalCode }, 'session exited');
+      } catch (err) {
+        log.error({ err, sessionId: id }, 'error handling pty exit');
+      }
     });
 
     this.storage.update({ id, pid: pty.pid, status: 'running' });
@@ -375,7 +421,6 @@ export class SessionManager {
 
   private _killPty(pty: IPty, pid: number | null): void {
     if (process.platform === 'win32') {
-      const { execSync } = require('node:child_process');
       try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch { /* ok */ }
     } else {
       try { pty.kill('SIGTERM'); } catch { /* ok */ }
@@ -430,11 +475,27 @@ export class SessionManager {
 
   reconcileWithStorage(): number {
     let touched = 0;
+    let rehydrated = 0;
     const stored = this.storage.list();
     for (const rec of stored) {
-      if (!live.has(rec.id) && rec.status !== 'exited') {
-        // Don't mark structured sessions as exited — they may come back.
-        if (rec.mode === 'persistent') continue;
+      if (live.has(rec.id)) continue;
+
+      // Persistent (chat) sessions have no long-lived process — each turn
+      // spawns a short-lived Claude. On restart, rehydrate them into the
+      // live Map (pty: null) so subscribe()/write() work again and the next
+      // message resumes context via --resume <claudeSessionId>.
+      if (rec.mode === 'persistent') {
+        live.set(rec.id, {
+          record: rec,
+          pty: null,
+          subscribers: new Set(),
+          claudeSessionId: rec.claudeSessionId ?? undefined,
+        });
+        rehydrated++;
+        continue;
+      }
+
+      if (rec.status !== 'exited') {
         this.storage.update({
           id: rec.id, status: 'exited', exitCode: -1, exitedAt: Date.now(),
         });
@@ -442,6 +503,7 @@ export class SessionManager {
         log.warn({ sessionId: rec.id }, 'orphaned session marked exited on startup');
       }
     }
+    if (rehydrated > 0) log.info({ rehydrated }, 'persistent sessions rehydrated on startup');
     return touched;
   }
 }
