@@ -393,6 +393,32 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   align-items: center;
   font-size: 13px;
 }
+/* Local override: the dismiss button inside a red banner should match
+   the banner's flat red-on-dark look instead of inheriting the global
+   accent (blue) button chrome from the `button` rule above. Scoped to
+   `.error-banner > button` only — leaves the global button defaults
+   intact everywhere else. */
+.error-banner > button {
+  background: transparent;
+  color: #ff9999;
+  border: none;
+  border-radius: 0;
+  padding: 0 4px;
+  min-height: 32px;
+  min-width: 32px;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.error-banner > button:hover {
+  opacity: 1;
+  background: transparent;
+}
+.error-banner > button:active {
+  transform: none;
+}
 
 /* Modal */
 .modal-overlay {

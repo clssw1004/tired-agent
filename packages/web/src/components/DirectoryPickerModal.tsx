@@ -18,7 +18,7 @@
  * user confirms via onSelect() or cancels via onClose().
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DirectoryEntry,
   DirectoryFavorite,
@@ -68,8 +68,19 @@ export function DirectoryPickerModal({
   // local state to whatever the server reports (it may have normalized
   // the path or redirected to the home directory when the input was
   // empty).
+  //
+  // To avoid races when the user clicks quickly through a chain of
+  // directories we tag each request with a monotonically increasing
+  // sequence number; only the latest in-flight request is allowed to
+  // mutate state. Stale responses and stale errors are discarded.
+  //
+  // Returns the listing on success, or `null` on failure / when the
+  // response was superseded — callers (e.g. `pickShortcut`) use this
+  // to decide whether to confirm the selection.
+  const requestSeqRef = useRef(0);
   const loadListing = useCallback(
-    async (path?: string) => {
+    async (path?: string): Promise<DirectoryListing | null> => {
+      const myId = ++requestSeqRef.current;
       setLoading(true);
       setError(null);
       try {
@@ -78,13 +89,17 @@ export function DirectoryPickerModal({
           path || undefined,
           server.agentId,
         );
+        if (myId !== requestSeqRef.current) return null;
         setCurrentPath(listing.path);
         setParent(listing.parent);
         setEntries(listing.entries);
+        return listing;
       } catch (err) {
+        if (myId !== requestSeqRef.current) return null;
         setError((err as Error).message);
+        return null;
       } finally {
-        setLoading(false);
+        if (myId === requestSeqRef.current) setLoading(false);
       }
     },
     [server],
@@ -92,9 +107,12 @@ export function DirectoryPickerModal({
 
   // Initial effect: fetch shortcuts + first listing in parallel so the
   // modal has both sidebars ready when it paints. If either fails we
-  // surface the error in place — partial data is still useful.
+  // surface the error in place — partial data is still useful. We tag
+  // the parallel pair with the same sequence number used by
+  // `loadListing` so a navigation that fires immediately after the
+  // initial mount doesn't get overwritten by these slower requests.
   useEffect(() => {
-    let cancelled = false;
+    const myId = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     void Promise.all([
@@ -102,7 +120,7 @@ export function DirectoryPickerModal({
       transport.listDirectories(server, value || undefined, server.agentId),
     ])
       .then(([shortcuts, listing]) => {
-        if (cancelled) return;
+        if (myId !== requestSeqRef.current) return;
         setFavorites(shortcuts.favorites);
         setRecent(shortcuts.recent);
         setCurrentPath(listing.path);
@@ -110,14 +128,12 @@ export function DirectoryPickerModal({
         setEntries(listing.entries);
       })
       .catch((err) => {
-        if (!cancelled) setError((err as Error).message);
+        if (myId !== requestSeqRef.current) return;
+        setError((err as Error).message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (myId === requestSeqRef.current) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [server, value]);
 
   const isFavorited = useMemo(
@@ -131,12 +147,15 @@ export function DirectoryPickerModal({
   );
 
   // ── shortcut interactions ────────────────────────────────────────
-  // Clicking a favorite/recent should pick the path right away. If
-  // the path is stale (the server was reinstalled) the loadListing
-  // call inside loadListing will surface the error and leave the
-  // modal open so the user can recover.
-  const pickShortcut = (path: string) => {
-    void loadListing(path).then(() => onSelect(path));
+  // Clicking a favorite/recent navigates to the path first; we only
+  // commit the selection (and close the modal) when the server
+  // confirms that path exists. A stale shortcut — e.g. the Agent was
+  // reinstalled and the directory is gone — surfaces as an error and
+  // leaves the modal open so the user can recover instead of having
+  // a non-existent path silently written back to the form.
+  const pickShortcut = async (path: string) => {
+    const listing = await loadListing(path);
+    if (listing) onSelect(path);
   };
 
   const handleEntryClick = (entry: DirectoryEntry) => {
