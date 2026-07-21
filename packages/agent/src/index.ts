@@ -120,14 +120,11 @@ export async function main(cfg: ServerConfig) {
   await storage.init();
   log.info({ dataDir: cfg.dataDir, storageKind: process.env['STORAGE_KIND'] ?? 'sqlite' }, 'storage initialized');
 
-  const manager = new SessionManager(storage);
-  const reconciled = manager.reconcileWithStorage();
-  if (reconciled > 0) log.warn({ reconciled }, 'orphaned sessions marked exited on startup');
-  manager.startCleanupTimer();
-
-  // Initialise directory shortcuts (favorites + recent). These power the
-  // /v1/directories routes; failure here is non-fatal because the rest of
-  // the agent can still serve PTY sessions without shortcuts.
+  // Initialise directory shortcuts (favorites + recent) BEFORE the
+  // SessionManager so the manager can record recent cwds on every
+  // session create. Failure here is non-fatal — directory store errors
+  // never block PTY session creation, but we still create a stub if
+  // init fails so the rest of the boot path can continue normally.
   const directoryStore = createDirectoryStore(cfg.dataDir);
   try {
     await directoryStore.init();
@@ -135,6 +132,11 @@ export async function main(cfg: ServerConfig) {
     log.error({ err }, 'directory store init failed; directory routes will be empty');
   }
   const directoryService = createDirectoryService();
+
+  const manager = new SessionManager(storage, directoryStore);
+  const reconciled = manager.reconcileWithStorage();
+  if (reconciled > 0) log.warn({ reconciled }, 'orphaned sessions marked exited on startup');
+  manager.startCleanupTimer();
 
   const app = await createApp(cfg, storage, manager, directoryService, directoryStore);
 

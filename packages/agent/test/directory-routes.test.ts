@@ -237,3 +237,80 @@ test('error responses never leak the underlying stack trace', async (t) => {
   assert.ok(!/at .+ \(.+:\d+:\d+\)/.test(raw), `raw body should not contain a stack frame, got: ${raw}`);
   assert.ok(!/\bnode:fs\b/.test(raw), 'raw body should not mention node:fs internals');
 });
+
+test('creating a session with cwd appends to the recent list', async (t) => {
+  const fx = await buildFixture();
+  t.after(() => fx.close());
+
+  const before = (await fx.store.getShortcuts()).recent.length;
+  // Use persistent mode so the test does not depend on a real PTY being
+  // available on the host — the manager still walks through
+  // recordRecentCwd() after creating the session record.
+  const session = await fx.manager.create({
+    cmd: 'claude',
+    mode: 'persistent',
+    cwd: fx.homeDirectory,
+  });
+  assert.equal(session.cwd, fx.homeDirectory);
+
+  // recordRecentCwd runs synchronously after _createPersistent, but the
+  // underlying writeChain is async. Wait until the recent list reflects
+  // the new entry.
+  const deadline = Date.now() + 2000;
+  let after = before;
+  while (Date.now() < deadline) {
+    after = (await fx.store.getShortcuts()).recent.length;
+    if (after === before + 1) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(after, before + 1, 'recent list should grow by one after creating a session with cwd');
+  const recent = (await fx.store.getShortcuts()).recent;
+  assert.equal(recent[0]?.path, fx.homeDirectory);
+});
+
+test('a throwing DirectoryStore does not break session creation', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-routes-'));
+  t.after(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+  const homeDirectory = await mkdtemp(join(tmpdir(), 'tired-agent-home-'));
+
+  const storage = createSqliteStorage(dataDir);
+  await storage.init();
+
+  // Build a DirectoryStore whose recordRecent throws, but every other
+  // method delegates to a real on-disk store so the rest of the boot
+  // path is exercised normally.
+  const realStore = createDirectoryStore(dataDir);
+  await realStore.init();
+  const throwingStore: DirectoryStore = {
+    init: realStore.init,
+    getShortcuts: realStore.getShortcuts,
+    addFavorite: realStore.addFavorite,
+    removeFavorite: realStore.removeFavorite,
+    recordRecent: async () => {
+      throw new Error('simulated disk failure writing recent directory');
+    },
+  };
+
+  const service = createDirectoryService(homeDirectory);
+  const manager = new SessionManager(storage, throwingStore);
+
+  // Persistent mode: no PTY spawn, so a create() failure can only be
+  // caused by the throwing recordRecent path. The assertion is that the
+  // session is still returned to the caller.
+  const session = await manager.create({
+    cmd: 'claude',
+    mode: 'persistent',
+    cwd: homeDirectory,
+  });
+
+  assert.equal(session.cwd, homeDirectory);
+  assert.equal(session.mode, 'persistent');
+  // Status is 'starting' until the first PTY turn is spawned; the
+  // important guarantee is that the session record was returned at all,
+  // not the exact status.
+  assert.ok(['starting', 'running'].includes(session.status));
+
+  await storage.close();
+});
