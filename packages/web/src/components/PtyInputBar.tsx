@@ -60,11 +60,27 @@ interface Props {
   /** Auto-revert a modifier from 'oneShot' → 'off' after it's been
    *  consumed. Called once per keystroke that used the modifier. */
   onConsumeModifier?: (key: ModifierKey) => void;
+  /** Session ID — changes when navigating to a different session. Used to
+   *  reset the input value on re-entry so stale half-typed text doesn't
+   *  persist across sessions (sync issue between input bar and xterm buffer). */
+  sessionId?: string;
 }
 
-export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter, modifiers, onConsumeModifier }: Props) {
+export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter, modifiers, onConsumeModifier, sessionId }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
+
+  // Reset input value when entering a new session so the text field doesn't
+  // carry stale half-typed content from a previous session. The component
+  // may remount in some navigation patterns, but a route re-entry that
+  // React preserves (same key) would keep the old value without this guard.
+  const prevSessionRef = useRef(sessionId);
+  useEffect(() => {
+    if (sessionId && sessionId !== prevSessionRef.current) {
+      setValue('');
+      prevSessionRef.current = sessionId;
+    }
+  }, [sessionId]);
 
   // IME state. `composingRef` is true between compositionstart and
   // compositionend (or while nativeEvent.isComposing on the latest event).
@@ -133,6 +149,12 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter,
     }
     flushDelta(value, next);
     setValue(next);
+  };
+
+  const handleSendEnter = () => {
+    onChange('\r');
+    setValue('');
+    onEnter?.();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -238,6 +260,16 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter,
         onCompositionEnd={handleCompositionEnd}
         onKeyDown={handleKeyDown}
       />
+      <button
+        type="button"
+        className="inputbar-send"
+        disabled={disabled || sending}
+        onClick={handleSendEnter}
+        aria-label="Send Enter"
+        title="Send Enter"
+      >
+        ⏎
+      </button>
     </form>
   );
 }

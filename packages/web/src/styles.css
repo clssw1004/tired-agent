@@ -1157,6 +1157,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 .input-bar input:disabled { opacity: 0.5; }
 
+/* ⏎ Enter button on the right side of the input bar. Compact round button
+   that sends \r to the PTY. Always visible so mobile users can confirm
+   prompts without reaching for the SpecialKeysBar or opening the keyboard. */
+.inputbar-send {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.12s, border-color 0.12s;
+}
+.inputbar-send:hover { border-color: rgba(51,154,240,0.4); }
+.inputbar-send:active { transform: scale(0.94); background: rgba(51,154,240,0.18); }
+.inputbar-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Busy state — Claude is processing; dim the input but keep it tappable
    so the user can still type their next prompt (Claude will queue it).
    SpecialKeysBar stays full-strength so Ctrl+C remains a one-tap kill. */

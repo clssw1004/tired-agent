@@ -133,9 +133,6 @@ const STRUCTURED_KEYS: SpecialButtonDef[] = [
  *    row 1 (7): ⏎ Esc c d Tab Brk Ctrl
  *    row 2 (5): Shift ← ↑ ↓ →              */
 const PTY_KEYS: ButtonDef[] = [
-  // ⏎ Enter — highest-frequency action on mobile (confirm prompts, send
-  // commands). Placed first so it's always on row 1 regardless of wrap width.
-  { kind: 'special', label: '⏎', specs: { base: '\r' }, longPressBytes: '\r\r', title: 'Enter (long: double Enter)' },
   // Esc — unchanged by any modifier (raw escape byte).
   { kind: 'special', label: 'Esc', specs: { base: '\x1b' }, title: 'Escape' },
   // c / d — modifier-aware letters.

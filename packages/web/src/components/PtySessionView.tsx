@@ -656,6 +656,7 @@ export function PtySessionView({
       <PtyInputBar
         disabled={disabled}
         sending={false}
+        sessionId={sessionId}
         placeholder={
           disabled
             ? '会话已结束'
