@@ -25,3 +25,6 @@ web-build/
 coverage/
 *.tmp
 data/
+
+# Claude Code worktrees / session state
+.claude/

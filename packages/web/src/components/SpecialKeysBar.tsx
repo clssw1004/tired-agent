@@ -123,25 +123,35 @@ const STRUCTURED_KEYS: SpecialButtonDef[] = [
   { kind: 'special', label: '中断', specs: { base: '\x03' }, longPressBytes: '\x03\x03', title: '中断 Claude (长按强制中断)' },
 ];
 
-/** PTY-mode keys: full terminal control set + 2 modifier toggles. */
+/** PTY-mode keys: full terminal control set + 2 modifier toggles.
+ *  Ordered by logical grouping + frequency of use on mobile:
+ *    1. ⏎ Enter — most used (confirm prompts)
+ *    2. Esc / c / d / Tab / Brk — terminal control actions
+ *    3. Ctrl / Shift — modifiers that change other keys
+ *    4. ← ↑ ↓ → — cursor navigation (grouped together)
+ *  With flex-wrap on a 360px phone this naturally breaks into:
+ *    row 1 (7): ⏎ Esc c d Tab Brk Ctrl
+ *    row 2 (5): Shift ← ↑ ↓ →              */
 const PTY_KEYS: ButtonDef[] = [
-  ...MODIFIER_BUTTONS,
   // Esc — unchanged by any modifier (raw escape byte).
   { kind: 'special', label: 'Esc', specs: { base: '\x1b' }, title: 'Escape' },
-  // Tab — Shift+Tab is back-tab.
-  { kind: 'special', label: 'Tab', specs: SPECIAL_KEY_MODIFIER_SPECS['Tab'], title: 'Tab (Shift: back-tab)' },
-  // c / d — modifier-aware letters, replacing the old hard-coded C-c / C-d.
+  // c / d — modifier-aware letters.
   { kind: 'special', label: 'c', specs: { base: 'c', shift: 'C', ctrl: '\x03', ctrlShift: '\x03' },
     longPressBytes: '\x03\x03', title: 'c — Ctrl+c to interrupt (hold: hard kill)' },
   { kind: 'special', label: 'd', specs: { base: 'd', shift: 'D', ctrl: '\x04', ctrlShift: '\x04' },
     longPressBytes: '\x04\x04', title: 'd — Ctrl+d for EOF (hold: double EOF)' },
-  // Arrows — xterm-style modifier parameters (reused from shared spec).
+  // Tab — Shift+Tab is back-tab.
+  { kind: 'special', label: 'Tab', specs: SPECIAL_KEY_MODIFIER_SPECS['Tab'], title: 'Tab (Shift: back-tab)' },
+  // BREAK (\x1c, FS): pauses debugger / some TUI prompts.
+  { kind: 'special', label: 'Brk', specs: { base: '\x1c' }, title: 'Break — pause / debugger interrupt' },
+  // Modifier toggles — affect the next non-modifier key.
+  ...MODIFIER_BUTTONS,
+  // Arrows — xterm-style modifier parameters. Grouped together at the end
+  // so they fall onto a second row together for easy spatial navigation.
+  { kind: 'special', label: '←', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowLeft'], title: 'Arrow left' },
   { kind: 'special', label: '↑', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowUp'], title: 'Arrow up' },
   { kind: 'special', label: '↓', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowDown'], title: 'Arrow down' },
-  { kind: 'special', label: '←', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowLeft'], title: 'Arrow left' },
   { kind: 'special', label: '→', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowRight'], title: 'Arrow right' },
-  // BREAK (\x1c, FS): pauses debugger / some TUI prompts. No modifier variant.
-  { kind: 'special', label: 'Brk', specs: { base: '\x1c' }, title: 'Break — pause / debugger interrupt' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -174,12 +184,25 @@ interface Props {
    *  tap/long-press fires both the resolved bytes AND the consumption
    *  in the same tick. */
   onConsumeModifier?: (key: ModifierKey) => void;
+  /** Force the bar to render even on desktop (where the CSS hides it by
+   *  default at ≥768px). Toggled by the host's "show controls" header
+   *  button so a desktop user can summon Ctrl+C / Esc without first
+   *  clicking the xterm canvas. */
+  forceVisible?: boolean;
 }
 
-export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier, onConsumeModifier }: Props) {
+export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier, onConsumeModifier, forceVisible }: Props) {
   const keys = structured ? STRUCTURED_KEYS : PTY_KEYS;
   return (
-    <div className={'special-keys' + (structured ? ' special-keys-structured' : '')} role="toolbar" aria-label={structured ? 'Chat controls' : 'Terminal special keys'}>
+    <div
+      className={
+        'special-keys' +
+        (structured ? ' special-keys-structured' : '') +
+        (forceVisible ? ' is-forced' : '')
+      }
+      role="toolbar"
+      aria-label={structured ? 'Chat controls' : 'Terminal special keys'}
+    >
       {keys.map((k) => {
         if (k.kind === 'modifier') {
           const mode = modifiers?.[k.modifier] ?? 'off';

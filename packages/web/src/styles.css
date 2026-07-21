@@ -527,6 +527,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
      width (e.g. xterm canvas) so the page never grows a horizontal
      scrollbar on narrow portrait phones. */
   min-width: 0;
+  /* Safety net: the xterm canvas or any wide child should never push the
+     page wider than the viewport on mobile. overflow: hidden clips any
+     extreme overflow (e.g. a fit() timing race that leaves the canvas
+     briefly too wide before the ResizeObserver fires). */
+  overflow-x: hidden;
   background:
     radial-gradient(ellipse at top, rgba(51,154,240,0.05), transparent 60%),
     var(--bg);
@@ -555,6 +560,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+}
+/* Desktop-only toggle that summons the terminal controls (SpecialKeysBar)
+   on demand. Hidden on mobile because the bar is already always visible
+   there. Hidden in structured mode by the host (not rendered at all). */
+.chat-toggle-controls {
+  display: none;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.chat-toggle-controls:hover { color: var(--text); border-color: rgba(51,154,240,0.4); }
+.chat-toggle-controls.is-on {
+  background: rgba(51,154,240,0.18);
+  color: var(--text);
+  border-color: var(--accent);
+}
+@media (min-width: 768px) {
+  .chat-toggle-controls { display: inline-flex; align-items: center; }
 }
 .chat-avatar {
   width: 36px; height: 36px;
@@ -1125,6 +1157,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 .input-bar input:disabled { opacity: 0.5; }
 
+/* ⏎ Enter button on the right side of the input bar. Compact round button
+   that sends \r to the PTY. Always visible so mobile users can confirm
+   prompts without reaching for the SpecialKeysBar or opening the keyboard. */
+.inputbar-send {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.12s, border-color 0.12s;
+}
+.inputbar-send:hover { border-color: rgba(51,154,240,0.4); }
+.inputbar-send:active { transform: scale(0.94); background: rgba(51,154,240,0.18); }
+.inputbar-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Busy state — Claude is processing; dim the input but keep it tappable
    so the user can still type their next prompt (Claude will queue it).
    SpecialKeysBar stays full-strength so Ctrl+C remains a one-tap kill. */
@@ -1143,6 +1202,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
    the breakpoint below so it never crowds the xterm view. */
 .special-keys {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px 8px;
   background: rgba(13,13,26,0.92);
@@ -1150,25 +1210,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  /* 9 buttons rarely fit a portrait phone in one screen — let the bar
-     scroll horizontally so the user can swipe to reach later buttons.
-     The bar itself is constrained to max-width: 100% so it never grows
-     a page-level scrollbar. */
+  /* Constrain to the parent width so flex-wrap actually wraps instead of
+     overflowing. Previously used overflow-x: auto + scrollbar hiding, but
+     some WebViews still show the scrollbar visually. wrap is cleaner. */
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  /* Hide the scrollbar on every WebView family. -ms-overflow-style covers
-     legacy Edge/IE, the pseudo-element covers Chrome/Safari. */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
-.special-keys::-webkit-scrollbar { display: none; }
 .special-key {
   flex: 0 0 auto;
-  min-width: 36px;
-  height: 32px;
-  padding: 0 8px;
+  min-width: 28px;
+  height: 30px;
+  padding: 0 6px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-input);
@@ -1209,12 +1261,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .special-key.modifier.is-one-shot { animation: none; opacity: 1; }
 }
 
-/* Hide on desktop — physical keyboard is available. */
+/* Hide on desktop — physical keyboard is available. The host can force the
+   bar to render via the .is-forced class, applied when the user toggles the
+   "show controls" header button on a PTY session. */
 @media (min-width: 768px) {
-  .special-keys { display: none; }
-
+  .special-keys:not(.is-forced) { display: none; }
 }
 
+/* ── ClaudeCommandsBar — quick-launch chips for common slash commands ── */
+/* Sits above SpecialKeysBar in PTY mode (PtySessionView only mounts it for
+   `cmd === 'claude'`). Always visible regardless of viewport: desktop users
+   who toggle the controls bar on will see it there too. */
 @keyframes ct-pulse {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1;    }
@@ -1871,6 +1928,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 
 /* ── Special keys for structured mode ───────────────────────────────── */
+
+/* ── Special keys for structured mode ───────────────────────────────── */
 .special-keys-structured {
   /* Simplified: only show the interrupt button */
 }
@@ -2120,18 +2179,47 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .directory-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+/* ── Tab bar: toggle between "常用/最近" and "浏览目录" ─────────── */
+.directory-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.directory-tab {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.directory-tab:hover { color: var(--text); border-color: rgba(51,154,240,0.4); }
+.directory-tab.is-active {
+  background: rgba(51,154,240,0.18);
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .directory-shortcut-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 38%;
   overflow-y: auto;
+  flex: 1;
   padding-right: 2px;
 }
 .directory-shortcut-section {
@@ -2200,8 +2288,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 
 .directory-listing {
   flex: 1;
-  min-height: 120px;
-  max-height: 52%;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2288,12 +2375,6 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     flex: 1 1 100%;
     order: 2;
   }
-  .directory-shortcut-list {
-    max-height: 40%;
-  }
-  .directory-listing {
-    max-height: 46%;
-  }
   .directory-modal-actions > button {
     flex-basis: calc(50% - 5px);
   }
@@ -2358,6 +2439,19 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     width: 100%;
   }
 }
+/* On very narrow phones the Choose button is still full-width, but reduce
+   its height to be less conspicuous. Also tighten the clear-link spacing. */
+@media (max-width: 480px) {
+  .cwd-input-row button {
+    min-height: 36px;
+    font-size: 13px;
+    flex: none;
+  }
+  .cwd-clear {
+    margin-top: 4px;
+    padding: 4px 8px;
+  }
+}
 
 @media (hover: none) {
   .argument-chip { min-height: 44px; }
@@ -2390,3 +2484,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   -webkit-tap-highlight-color: transparent;
 }
 .output-truncated-banner button:active { background: rgba(255, 200, 80, 0.18); }
+
+.output-truncated-banner .banner-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 14px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0.7;
+  -webkit-tap-highlight-color: transparent;
+}
+.output-truncated-banner .banner-dismiss:hover,
+.output-truncated-banner .banner-dismiss:active { opacity: 1; }

@@ -93,8 +93,12 @@ export function SessionCreatePage() {
   const [cwd, setCwd] = useState('');
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [activeOptionIds, setActiveOptionIds] = useState<string[]>([]);
-  const [cols, setCols] = useState(80);
-  const [rows, setRows] = useState(24);
+  // Terminal size is fixed at 80×24 as a sane PTY bootstrap. The web side
+  // (PtySessionView) auto-syncs the actual cols/rows to the browser
+  // viewport via POST /v1/sessions/:id/resize, so this initial value only
+  // matters for the very first frame. No user-facing controls needed.
+  const INITIAL_COLS = 80;
+  const INITIAL_ROWS = 24;
   const [mode, setMode] = useState<SessionMode>('process');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,8 +174,8 @@ export function SessionCreatePage() {
           // field empty — otherwise SessionCard rows are visually identical
           // when several sessions of the same command are open.
           label: label.trim() || generateDefaultLabel(),
-          cols,
-          rows,
+          cols: INITIAL_COLS,
+          rows: INITIAL_ROWS,
           mode,
         },
         server.agentId,
@@ -346,27 +350,8 @@ export function SessionCreatePage() {
                   Clear directory
                 </button>
               )}
-            </div>
-            <div className="form-row">
-              <div className="field" style={{ flex: 1 }}>
-                <label className="field-label">Cols</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={cols}
-                  onChange={(e) => setCols(Number(e.target.value))}
-                />
-              </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label className="field-label">Rows</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={rows}
-                  onChange={(e) => setRows(Number(e.target.value))}
-                />
+              <div className="field-hint">
+                终端尺寸会在会话开始后自动匹配浏览器窗口宽度，无需手动设置。电脑和移动端都按实际宽度调整。
               </div>
             </div>
           </div>
