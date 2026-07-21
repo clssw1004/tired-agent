@@ -2277,7 +2277,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     width: calc(100% - 16px);
     max-width: none;
     max-height: 92vh;
-    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 6px 10px calc(10px + env(safe-area-inset-bottom));
+    gap: 6px;
   }
   /* Keep toolbar on a single row on mobile so it doesn't double the
      header height. The path uses ellipsis truncation when long — the
@@ -2286,17 +2287,20 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .directory-toolbar {
     flex-wrap: nowrap;
     gap: 6px;
+    padding: 4px 0 4px;
   }
   .directory-up-btn {
     flex: 0 0 auto;
     padding: 0 8px;
     font-size: 12px;
     min-width: 0;
+    min-height: 36px;
   }
   .directory-path {
     flex: 1;
     min-width: 0;
-    max-height: 44px;
+    max-height: 36px;
+    padding: 6px 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2321,14 +2325,23 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .directory-modal-actions {
     flex-wrap: nowrap;
     gap: 6px;
-    margin-top: 10px;
+    margin-top: 6px;
   }
   .directory-modal-actions > button {
     flex: 1 1 0;
     min-width: 0;
-    min-height: 40px;
+    min-height: 36px;
     padding: 0 6px;
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 1.1;
+  }
+  /* Slimmer title on mobile — saves ~6px without losing legibility. */
+  .directory-modal .modal-title {
+    font-size: 15px;
+    margin-top: 0;
+  }
+  .directory-modal .modal-handle {
+    margin: 2px auto 0;
   }
 }
 
