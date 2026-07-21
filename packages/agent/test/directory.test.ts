@@ -216,6 +216,142 @@ test('store favorite ids are stable strings (uuid-shaped)', async () => {
   assert.ok(onDisk.includes(fav.id));
 });
 
+// ─── Path normalization tests ─────────────────────────────────────────
+
+test('store normalizes relative favorite paths against cwd', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  // cd into dataDir and add a relative path; the store must resolve it
+  // to dataDir/<name> before storing.
+  const cwd = process.cwd();
+  process.chdir(dataDir);
+  try {
+    const favorite = await store.addFavorite('relative-project', 'rel');
+    assert.ok(
+      favorite.path === join(dataDir, 'relative-project'),
+      `expected ${join(dataDir, 'relative-project')}, got ${favorite.path}`,
+    );
+  } finally {
+    process.chdir(cwd);
+  }
+
+  const { favorites } = await store.getShortcuts();
+  assert.equal(favorites.length, 1);
+  assert.equal(favorites[0]?.path, join(dataDir, 'relative-project'));
+});
+
+test('store collapses "." and ".." segments in favorite paths', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  await mkdir(join(dataDir, 'a', 'b'), { recursive: true });
+  // "./a/./b/../b" should resolve to "<dataDir>/a/b" via path.resolve.
+  const favorite = await store.addFavorite(join(dataDir, 'a', '.', 'b', '..', 'b'));
+  assert.equal(favorite.path, join(dataDir, 'a', 'b'));
+});
+
+test('store dedupes favorites differing only by case on Windows', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  const target = join(dataDir, 'Project');
+  const a = await store.addFavorite(target, 'A');
+  // Same path with different casing — must collapse on Windows.
+  const altCase = process.platform === 'win32' ? target.toUpperCase() : target;
+  const b = await store.addFavorite(altCase, 'B');
+
+  assert.equal(a.id, b.id, 'case-only differences must not create a second favorite');
+  const { favorites } = await store.getShortcuts();
+  assert.equal(favorites.length, 1);
+});
+
+test('store normalizes forward/back slashes consistently in favorite paths', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  const canonical = join(dataDir, 'sub', 'project');
+  // Build an alt-separator variant for the same logical path.
+  const alt = process.platform === 'win32'
+    ? canonical.replace(/\\/g, '/')
+    : canonical.replace(/\//g, '\\');
+
+  const a = await store.addFavorite(canonical, 'A');
+  const b = await store.addFavorite(alt, 'B');
+  assert.equal(a.id, b.id, 'different separators for the same path must dedupe');
+  assert.equal(a.path, canonical);
+  assert.equal(b.path, canonical, 'second write should adopt the canonical form');
+});
+
+test('store recordRecent resolves relative paths and dedupes', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  const cwd = process.cwd();
+  process.chdir(dataDir);
+  try {
+    await store.recordRecent('foo');
+    await store.recordRecent('./foo');
+    await store.recordRecent('././foo');
+  } finally {
+    process.chdir(cwd);
+  }
+
+  const { recent } = await store.getShortcuts();
+  assert.equal(recent.length, 1, 'all three writes must collapse to one recent entry');
+  assert.equal(recent[0]?.path, join(dataDir, 'foo'));
+});
+
+test('store recordRecent dedupes case-variant paths on Windows', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store = createDirectoryStore(dataDir);
+  await store.init();
+
+  const target = join(dataDir, 'Workdir');
+  const altCase = process.platform === 'win32' ? target.toUpperCase() : target;
+  await store.recordRecent(target);
+  await store.recordRecent(altCase);
+
+  const { recent } = await store.getShortcuts();
+  assert.equal(recent.length, 1);
+  assert.equal(recent[0]?.path, target);
+});
+
+test('store reload preserves normalized paths after restart', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
+  const store1 = createDirectoryStore(dataDir);
+  await store1.init();
+  const cwd = process.cwd();
+  process.chdir(dataDir);
+  let savedPath: string;
+  try {
+    const fav = await store1.addFavorite('proj');
+    savedPath = fav.path;
+  } finally {
+    process.chdir(cwd);
+  }
+
+  // Simulate restart by creating a fresh store on the same dir.
+  const store2 = createDirectoryStore(dataDir);
+  await store2.init();
+  const cwd2 = process.cwd();
+  process.chdir(dataDir);
+  try {
+    const reloaded = await store2.addFavorite('./proj');
+    assert.equal(reloaded.path, savedPath);
+  } finally {
+    process.chdir(cwd2);
+  }
+
+  const { favorites } = await store2.getShortcuts();
+  assert.equal(favorites.length, 1);
+});
+
 // ─── Service tests ─────────────────────────────────────────────────────
 
 test('service lists home children and returns parent', async () => {

@@ -27,6 +27,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts --",
     "start": "node dist/cli.js start",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist data",
     "prepublishOnly": "npm run build"

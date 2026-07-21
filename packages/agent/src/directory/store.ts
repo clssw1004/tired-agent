@@ -19,11 +19,17 @@
  *
  * ## Path normalization
  *
- * Windows filesystems are case-insensitive. We therefore compare paths
- * via a normalized key that is the original path on POSIX and the
- * lowercased path on Windows. The stored `path` field preserves the
- * casing the caller supplied, but the duplicate check is case-insensitive
- * on Windows.
+ * Every input path passed to `addFavorite` or `recordRecent` is first
+ * normalized via `path.resolve`, which:
+ *   - converts relative paths to absolute paths (anchored at cwd);
+ *   - collapses `..` and `.` segments;
+ *   - normalizes path separators on Windows (`/` → `\`).
+ *
+ * On top of that, Windows filesystems are case-insensitive, so duplicate
+ * detection compares paths via a key that is the original path on POSIX
+ * and the lowercased path on Windows. The stored `path` field preserves
+ * the normalized absolute path (not the raw caller input), ensuring that
+ * "C:\Foo", "c:\foo", and "C:/foo" all collapse to a single record.
  *
  * ## Failure recovery
  *
@@ -36,7 +42,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { DirectoryFavorite, RecentDirectory } from '@tired-agent/protocol';
 import { log } from '../util/log.js';
 import type {
@@ -82,7 +88,7 @@ export function createDirectoryStore(dataDir: string): DirectoryStore {
   function addFavorite(path: string, name?: string): Promise<DirectoryFavorite> {
     return schedule(async () => {
       assertInitialized();
-      const normalized = path;
+      const normalized = resolve(path);
       const key = normalizeKey(normalized);
       const existing = state.favorites.find((f) => normalizeKey(f.path) === key);
       const resolvedName = name?.trim()
@@ -122,14 +128,18 @@ export function createDirectoryStore(dataDir: string): DirectoryStore {
   function recordRecent(path: string): Promise<void> {
     return schedule(async () => {
       assertInitialized();
-      const normalized = path;
+      const normalized = resolve(path);
       const key = normalizeKey(normalized);
       const now = Date.now();
       const idx = state.recent.findIndex((r) => normalizeKey(r.path) === key);
+      // When the path already exists, reuse its stored casing so the user
+      // sees a consistent display regardless of which case variant they
+      // happened to pass this time. Then refresh lastUsedAt and move to head.
+      const storedPath = idx !== -1 ? state.recent[idx]!.path : normalized;
       if (idx !== -1) {
         state.recent.splice(idx, 1);
       }
-      const entry: RecentDirectory = { path: normalized, lastUsedAt: now };
+      const entry: RecentDirectory = { path: storedPath, lastUsedAt: now };
       state.recent.unshift(entry);
       if (state.recent.length > RECENT_LIMIT) {
         state.recent.length = RECENT_LIMIT;
