@@ -2311,17 +2311,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     text-overflow: ellipsis;
     word-break: normal;
   }
-  /* Cap the directory listing (file/folder browser) so the modal doesn't
-     grow taller than necessary on mobile. Users who already know which
-     folder they want usually pick a favorite and tap "选择当前目录" —
-     they don't need the listing to dominate the modal. min-height: 64px
-     keeps a useful "look around" view; max-height caps it at ~280px on a
-     tall phone and ~32vh on short viewports. The shortcut list above
-     keeps flex:1 so it claims any leftover space. */
+  /* Cap the directory listing (file/folder browser) so its height stays
+     in a predictable 220–280px band on mobile. Without the min-height the
+     listing would shrink to ~64px when the current folder only has a few
+     sub-folders, then jump back to ~280px when navigating into a busy
+     directory — a visible "height flicker" that's distracting. The 220px
+     floor always shows ~4 folder entries without scrolling; 280px ceiling
+     keeps the modal balanced with the favorites block above. */
   .directory-listing {
-    min-height: 64px;
+    min-height: 220px;
     max-height: 280px;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
   }
   /* Shortcut list is the primary selection surface on mobile — let it
      grow to fill what the listing leaves behind. */
