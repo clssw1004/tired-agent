@@ -2176,11 +2176,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   color: var(--accent);
 }
 .directory-shortcut-name {
-  flex-shrink: 0;
+  flex-shrink: 1;
   font-weight: 600;
   font-size: 13px;
   color: var(--text);
   max-width: 38%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2276,26 +2277,58 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     width: calc(100% - 16px);
     max-width: none;
     max-height: 92vh;
-    padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   }
+  /* Keep toolbar on a single row on mobile so it doesn't double the
+     header height. The path uses ellipsis truncation when long — the
+     full path is always in the title= attribute and copy-paste still
+     works via long-press on the input itself. */
   .directory-toolbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 6px;
   }
   .directory-up-btn {
     flex: 0 0 auto;
+    padding: 0 8px;
+    font-size: 12px;
+    min-width: 0;
   }
   .directory-path {
-    flex: 1 1 100%;
-    order: 2;
+    flex: 1;
+    min-width: 0;
+    max-height: 44px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: normal;
   }
+  /* Guarantee at least 2 favorite rows are always reachable on mobile.
+     Without this, `directory-listing { min-height: 120px }` would squeeze
+     the shortcut list to a tiny sliver where favorites are practically
+     unscrollable / untappable. */
   .directory-shortcut-list {
-    max-height: 40%;
+    max-height: 50%;
+    min-height: 104px; /* ~2 rows at 44px each + gap */
   }
   .directory-listing {
-    max-height: 46%;
+    min-height: 88px;
+    max-height: none;
+    flex: 1 1 auto;
+  }
+  /* Three actions in a single row on mobile (they fit at 360px with the
+     shorter button labels below). Was 2×2 which ate ~88px of vertical
+     space — freeing that height gives the body room to show shortcuts. */
+  .directory-modal-actions {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-top: 10px;
   }
   .directory-modal-actions > button {
-    flex-basis: calc(50% - 5px);
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 6px;
+    font-size: 13px;
   }
 }
 
