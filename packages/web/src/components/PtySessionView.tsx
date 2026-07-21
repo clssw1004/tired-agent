@@ -130,6 +130,15 @@ export function PtySessionView({
    *  won't show again unless the session re-mounts. */
   const [tailBannerDismissed, setTailBannerDismissed] = useState(false);
 
+  // Auto-dismiss the truncation banner after 3s so it doesn't permanently
+  // occupy screen real estate. The user can always tap ✕ to dismiss sooner,
+  // or tap "加载完整历史" to load the full log. Timer resets on re-mount.
+  useEffect(() => {
+    if (!outputTail?.truncated || tailBannerDismissed) return;
+    const t = window.setTimeout(() => setTailBannerDismissed(true), 3000);
+    return () => window.clearTimeout(t);
+  }, [outputTail?.truncated, tailBannerDismissed]);
+
   // Structured mode state
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
@@ -140,6 +149,9 @@ export function PtySessionView({
    *  header so a desktop user can summon Ctrl+C / Esc without clicking the
    *  xterm canvas. Reset on every mount (per-session). */
   const [showControls, setShowControls] = useState(false);
+  /** Desktop detection: matches CSS breakpoint. Used to conditionally render
+   *  PtyInputBar (desktop) vs PtyMobileKeyboard (mobile). */
+  const [isDesktop] = useState(() => window.innerWidth >= 768);
 
   // ── Modifier key state (PTY mode). Lifted to this host so both
   //    SpecialKeysBar (button bar) and PtyInputBar (system keyboard via
@@ -672,11 +684,10 @@ export function PtySessionView({
           />
         </>
       ) : (
-        // ── PTY (process) mode: custom mobile keyboard handles all
-        //    input on mobile; on desktop the keyboard is hidden by CSS
-        //    and the user types directly into xterm. The SpecialKeysBar
-        //    toggle (⌨ in header) only shows on desktop via showControls.
-        <>
+        // ── PTY (process) mode: desktop gets PtyInputBar for physical
+        //    keyboard typing; mobile gets PtyMobileKeyboard (custom).
+        //    SpecialKeysBar only on desktop via ⌨ toggle (showControls).
+        <div className="pty-input-wrapper">
           {showControls && (
             <SpecialKeysBar
               disabled={disabled}
@@ -688,14 +699,32 @@ export function PtySessionView({
               forceVisible={true}
             />
           )}
-          <PtyMobileKeyboard
-            disabled={disabled}
-            modifiers={modifiers}
-            onSetModifier={setModifier}
-            onConsumeModifier={consumeModifier}
-            onKey={(bytes) => void writeBytes(bytes)}
-          />
-        </>
+          {isDesktop ? (
+            <PtyInputBar
+              disabled={disabled}
+              sending={false}
+              sessionId={sessionId}
+              placeholder={
+                disabled
+                  ? '会话已结束'
+                  : busy
+                    ? 'Claude 处理中…'
+                    : '输入框 — 手机键盘直通'
+              }
+              onChange={(data) => void writeBytes(data)}
+              modifiers={modifiers}
+              onConsumeModifier={consumeModifier}
+            />
+          ) : (
+            <PtyMobileKeyboard
+              disabled={disabled}
+              modifiers={modifiers}
+              onSetModifier={setModifier}
+              onConsumeModifier={consumeModifier}
+              onKey={(bytes) => void writeBytes(bytes)}
+            />
+          )}
+        </div>
       )}
     </div>
   );

@@ -746,6 +746,14 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 .terminal-view .xterm-viewport::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.15);
+}
+
+/* Safari fix: xterm's canvas has an inline pixel width (e.g. 520px) which
+   can exceed the phone viewport. Even with overflow:hidden on all parents,
+   Safari may still calculate page scroll width from the canvas. This forces
+   the canvas to never render wider than its container while keeping its
+   pixel buffer (the width attribute) at full resolution for crisp text. */
+.terminal-view .xterm canvas { max-width: 100% !important; }
   border-radius: 3px;
 }
 /* xterm's offscreen helper textarea (used for keyboard capture) — make
@@ -1282,6 +1290,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
    Hidden on desktop where the physical keyboard / xterm canvas is used. */
 .pty-keyboard {
   flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
   background: rgba(13,13,26,0.92);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1306,7 +1316,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 /* ── Key buttons ───────────────────────────────────────────────────── */
 .pty-key {
-  flex: 1 0 auto;
+  flex: 1 1 0%;
   min-width: 0;
   height: 38px;
   padding: 0 4px;
@@ -1336,7 +1346,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 }
 /* Space bar — wider, subtly different style. */
 .pty-key-wide {
-  flex: 3.5 0 auto;
+  flex: 3.5 1 0%;
   font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 0.08em;
@@ -2607,6 +2617,13 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   border-bottom: 1px solid rgba(255, 200, 80, 0.35);
   color: var(--text-muted, #888);
   font-size: 12px;
+  /* 3s auto-dismiss fade-out through React state; animation below gives
+     a smooth opacity + max-height transition over the last 0.6s. */
+  animation: banner-auto-fadeout 3s ease forwards;
+}
+@keyframes banner-auto-fadeout {
+  0%, 80% { opacity: 1; max-height: 40px; }
+  100%  { opacity: 0; max-height: 0; padding: 0 12px; }
 }
 .output-truncated-banner button {
   background: transparent;
