@@ -10,6 +10,9 @@
  */
 
 import type {
+  DirectoryFavorite,
+  DirectoryListing,
+  DirectoryShortcuts,
   FetchOutputResult,
   OutputChunk,
   Session,
@@ -45,6 +48,36 @@ export interface Transport {
 
   /** Create a new session on a daemon. */
   createSession(ref: ServerRef, spec: SessionSpec, agentId?: string): Promise<Session>;
+
+  /**
+   * List directories under `path` (or the daemon's home dir when omitted).
+   * Used by the session-create UI to browse the remote filesystem.
+   */
+  listDirectories(
+    ref: ServerRef,
+    path?: string,
+    agentId?: string,
+  ): Promise<DirectoryListing>;
+
+  /** Fetch the user's favorite + recent directory shortcuts. */
+  getDirectoryShortcuts(
+    ref: ServerRef,
+    agentId?: string,
+  ): Promise<DirectoryShortcuts>;
+
+  /** Save a directory as a favorite. */
+  addDirectoryFavorite(
+    ref: ServerRef,
+    favorite: { path: string; name?: string },
+    agentId?: string,
+  ): Promise<DirectoryFavorite>;
+
+  /** Remove a favorite directory by its id. */
+  removeDirectoryFavorite(
+    ref: ServerRef,
+    id: string,
+    agentId?: string,
+  ): Promise<void>;
 
   /** Fetch metadata for a single session. */
   getSession(ref: ServerRef, id: string, agentId?: string): Promise<Session>;

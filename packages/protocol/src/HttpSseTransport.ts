@@ -8,6 +8,9 @@
  */
 
 import type {
+  DirectoryFavorite,
+  DirectoryListing,
+  DirectoryShortcuts,
   FetchOutputResult,
   ResizeRequest,
   ServerRef,
@@ -226,6 +229,14 @@ export class HttpSseTransport implements Transport {
     return `${base}/v1/sessions`;
   }
 
+  /** Build a URL for directory-browsing endpoints. */
+  private directoriesUrl(ref: ServerRef, agentId?: string): string {
+    const base = ensureBaseUrl(ref);
+    return agentId
+      ? `${base}/v1/agents/${encodeURIComponent(agentId)}/directories`
+      : `${base}/v1/directories`;
+  }
+
   async listSessions(ref: ServerRef, agentId?: string): Promise<Session[]> {
     const res = await this.fetchImpl(this.agentsUrl(ref, agentId), {
       headers: authHeaders(ref),
@@ -242,6 +253,61 @@ export class HttpSseTransport implements Transport {
     });
     await checkOk(res, 'createSession');
     return (await res.json()) as Session;
+  }
+
+  async listDirectories(
+    ref: ServerRef,
+    path?: string,
+    agentId?: string,
+  ): Promise<DirectoryListing> {
+    const base = this.directoriesUrl(ref, agentId);
+    const url = path == null
+      ? base
+      : `${base}?${new URLSearchParams({ path }).toString()}`;
+    const res = await this.fetchImpl(url, { headers: authHeaders(ref) });
+    await checkOk(res, 'listDirectories');
+    return (await res.json()) as DirectoryListing;
+  }
+
+  async getDirectoryShortcuts(
+    ref: ServerRef,
+    agentId?: string,
+  ): Promise<DirectoryShortcuts> {
+    const res = await this.fetchImpl(
+      `${this.directoriesUrl(ref, agentId)}/shortcuts`,
+      { headers: authHeaders(ref) },
+    );
+    await checkOk(res, 'getDirectoryShortcuts');
+    return (await res.json()) as DirectoryShortcuts;
+  }
+
+  async addDirectoryFavorite(
+    ref: ServerRef,
+    favorite: { path: string; name?: string },
+    agentId?: string,
+  ): Promise<DirectoryFavorite> {
+    const res = await this.fetchImpl(
+      `${this.directoriesUrl(ref, agentId)}/favorites`,
+      {
+        method: 'POST',
+        headers: { ...authHeaders(ref), 'Content-Type': 'application/json' },
+        body: JSON.stringify(favorite),
+      },
+    );
+    await checkOk(res, 'addDirectoryFavorite');
+    return (await res.json()) as DirectoryFavorite;
+  }
+
+  async removeDirectoryFavorite(
+    ref: ServerRef,
+    id: string,
+    agentId?: string,
+  ): Promise<void> {
+    const res = await this.fetchImpl(
+      `${this.directoriesUrl(ref, agentId)}/favorites/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: authHeaders(ref) },
+    );
+    await checkOk(res, 'removeDirectoryFavorite');
   }
 
   async getSession(ref: ServerRef, id: string, agentId?: string): Promise<Session> {

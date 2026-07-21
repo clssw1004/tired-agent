@@ -393,6 +393,32 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   align-items: center;
   font-size: 13px;
 }
+/* Local override: the dismiss button inside a red banner should match
+   the banner's flat red-on-dark look instead of inheriting the global
+   accent (blue) button chrome from the `button` rule above. Scoped to
+   `.error-banner > button` only — leaves the global button defaults
+   intact everywhere else. */
+.error-banner > button {
+  background: transparent;
+  color: #ff9999;
+  border: none;
+  border-radius: 0;
+  padding: 0 4px;
+  min-height: 32px;
+  min-width: 32px;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.error-banner > button:hover {
+  opacity: 1;
+  background: transparent;
+}
+.error-banner > button:active {
+  transform: none;
+}
 
 /* Modal */
 .modal-overlay {
@@ -2047,4 +2073,293 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .streaming-cursor { animation: none; }
   .streaming-dot { animation: none; opacity: 0.5; }
   .status-thinking .status-icon { animation: none; }
+}
+
+/* ── DirectoryPickerModal ──────────────────────────────────────────── */
+/* Local overrides for the remote directory picker. The shared .modal-sheet
+   + .modal-btn already provide the bottom-sheet shell; we only tweak what
+   the directory flow adds on top. No global button defaults are touched. */
+.directory-modal {
+  max-width: 640px;
+  max-height: min(86vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.directory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+.directory-up-btn {
+  flex-shrink: 0;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+}
+.directory-path {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.directory-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.directory-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 38%;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.directory-shortcut-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.directory-shortcut-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0 4px;
+}
+.directory-shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  border-radius: 10px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 0.15s, transform 0.1s;
+}
+.directory-shortcut-item:hover { background: var(--bg-elev); }
+.directory-shortcut-item:active { transform: scale(0.98); }
+.directory-shortcut-icon {
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--accent);
+}
+.directory-shortcut-name {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.directory-shortcut-path {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the tail of long unix paths visible */
+  text-align: left;
+}
+
+.directory-listing {
+  flex: 1;
+  min-height: 120px;
+  max-height: 52%;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  padding: 4px;
+}
+.directory-status {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.directory-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.directory-entry-item {
+  margin: 0;
+  padding: 0;
+}
+.directory-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 0.12s, transform 0.1s;
+}
+.directory-entry:hover { background: var(--bg-elev); }
+.directory-entry:active { transform: scale(0.99); }
+.directory-entry-icon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 15px;
+}
+.directory-entry-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-modal-actions {
+  flex-wrap: wrap;
+  justify-content: stretch;
+}
+.directory-modal-actions > button {
+  flex: 1 1 120px;
+  min-height: 44px;
+}
+
+@media (max-width: 600px) {
+  .directory-modal {
+    width: calc(100% - 16px);
+    max-width: none;
+    max-height: 92vh;
+    padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+  }
+  .directory-toolbar {
+    flex-wrap: wrap;
+  }
+  .directory-up-btn {
+    flex: 0 0 auto;
+  }
+  .directory-path {
+    flex: 1 1 100%;
+    order: 2;
+  }
+  .directory-shortcut-list {
+    max-height: 40%;
+  }
+  .directory-listing {
+    max-height: 46%;
+  }
+  .directory-modal-actions > button {
+    flex-basis: calc(50% - 5px);
+  }
+}
+
+/* ── Argument shortcut chips — SessionCreatePage ───────────────────── */
+.argument-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.argument-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.argument-chip:active { transform: scale(0.97); }
+.argument-chip.is-active {
+  background: rgba(51,154,240,0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ── Working directory field — SessionCreatePage ───────────────────── */
+.cwd-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.cwd-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cwd-input-row button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.cwd-clear {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* Stack the cwd input above the Choose button on narrow screens so the
+   button never squeezes the path into an unreadable sliver. */
+@media (max-width: 480px) {
+  .cwd-input-row {
+    flex-direction: column;
+  }
+  .cwd-input-row button {
+    width: 100%;
+  }
+}
+
+@media (hover: none) {
+  .argument-chip { min-height: 44px; }
+  .cwd-input-row button { min-height: 44px; }
 }
