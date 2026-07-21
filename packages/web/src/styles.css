@@ -2298,3 +2298,68 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     flex-basis: calc(50% - 5px);
   }
 }
+
+/* ── Argument shortcut chips — SessionCreatePage ───────────────────── */
+.argument-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.argument-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.argument-chip:active { transform: scale(0.97); }
+.argument-chip.is-active {
+  background: rgba(51,154,240,0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ── Working directory field — SessionCreatePage ───────────────────── */
+.cwd-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.cwd-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cwd-input-row button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.cwd-clear {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* Stack the cwd input above the Choose button on narrow screens so the
+   button never squeezes the path into an unreadable sliver. */
+@media (max-width: 480px) {
+  .cwd-input-row {
+    flex-direction: column;
+  }
+  .cwd-input-row button {
+    width: 100%;
+  }
+}
+
+@media (hover: none) {
+  .argument-chip { min-height: 44px; }
+  .cwd-input-row button { min-height: 44px; }
+}

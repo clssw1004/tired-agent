@@ -4,25 +4,51 @@ import type { ServerRef, SessionMode } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { useToast } from '../components/Toast';
+import { DirectoryPickerModal } from '../components/DirectoryPickerModal';
+
+interface ArgumentOption {
+  id: string;
+  label: string;
+  args: string[];
+  hint: string;
+}
 
 interface Preset {
+  id: string;
   label: string;
   cmd: string;
-  args: string;
+  args: string[];
   hint: string;
   emoji: string;
+  options?: ArgumentOption[];
 }
 
 // Common interactive shells / REPLs the user might want to start. Tapping a
 // preset populates the form so they don't have to remember the command.
+// Each preset may expose common argument shortcuts as toggleable chips.
 const PRESETS: Preset[] = [
-  { label: 'Claude',  cmd: 'claude', args: '',                    hint: 'Anthropic Claude Code CLI',  emoji: '✦' },
-  { label: 'Bash',    cmd: 'bash',   args: '',                    hint: 'POSIX shell',                emoji: '$' },
-  { label: 'Zsh',     cmd: 'zsh',    args: '',                    hint: 'Z shell',                    emoji: '$' },
-  { label: 'cmd.exe', cmd: 'cmd.exe', args: '',                    hint: 'Windows command prompt',    emoji: '>' },
-  { label: 'PowerShell', cmd: 'powershell.exe', args: '',          hint: 'Windows PowerShell',         emoji: '>' },
-  { label: 'Python',  cmd: 'python3', args: '-i',                  hint: 'Interactive Python REPL',    emoji: '🐍' },
-  { label: 'Node',    cmd: 'node',   args: '',                    hint: 'Node.js REPL',                emoji: '⬢' },
+  { id: 'claude', label: 'Claude', cmd: 'claude', args: [], hint: 'Anthropic Claude Code CLI', emoji: '✦' },
+  { id: 'bash', label: 'Bash', cmd: 'bash', args: [], hint: 'POSIX shell', emoji: '$', options: [
+    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
+    { id: 'login', label: 'Login', args: ['-l'], hint: 'Start as a login shell' },
+  ] },
+  { id: 'zsh', label: 'Zsh', cmd: 'zsh', args: [], hint: 'Z shell', emoji: '$', options: [
+    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
+    { id: 'login', label: 'Login', args: ['-l'], hint: 'Start as a login shell' },
+  ] },
+  { id: 'cmd', label: 'cmd.exe', cmd: 'cmd.exe', args: [], hint: 'Windows command prompt', emoji: '>', options: [
+    { id: 'no-auto-run', label: 'No AutoRun', args: ['/d'], hint: 'Disable AutoRun commands' },
+  ] },
+  { id: 'powershell', label: 'PowerShell', cmd: 'powershell.exe', args: [], hint: 'Windows PowerShell', emoji: '>', options: [
+    { id: 'no-logo', label: 'No logo', args: ['-NoLogo'], hint: 'Hide startup logo' },
+    { id: 'no-profile', label: 'No profile', args: ['-NoProfile'], hint: 'Skip profile scripts' },
+  ] },
+  { id: 'python', label: 'Python', cmd: 'python3', args: ['-i'], hint: 'Interactive Python REPL', emoji: '🐍', options: [
+    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
+  ] },
+  { id: 'node', label: 'Node', cmd: 'node', args: [], hint: 'Node.js REPL', emoji: '⬢', options: [
+    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
+  ] },
 ];
 
 export function SessionCreatePage() {
@@ -37,22 +63,39 @@ export function SessionCreatePage() {
   const [cmd, setCmd] = useState(defaultCmd);
   const [args, setArgs] = useState('');
   const [label, setLabel] = useState('');
+  const [cwd, setCwd] = useState('');
+  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
+  const [activeOptionIds, setActiveOptionIds] = useState<string[]>([]);
   const [cols, setCols] = useState(80);
   const [rows, setRows] = useState(24);
   const [mode, setMode] = useState<SessionMode>('process');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Single source of truth for arguments:
+  //   - `args` state holds ONLY the user's manually typed extra arguments.
+  //   - preset default args + active option chips flow through `effectiveArgs`.
+  // This keeps preset/chip args from ever being duplicated into the manual box.
+  const selectedPreset = PRESETS.find((preset) => preset.cmd === cmd);
+  const selectedOptionArgs = (selectedPreset?.options ?? [])
+    .filter((option) => activeOptionIds.includes(option.id))
+    .flatMap((option) => option.args);
+  const effectiveArgs = [...(selectedPreset?.args ?? []), ...selectedOptionArgs];
+
   const commandPreview = useMemo(() => {
     const c = cmd.trim();
-    const a = args.trim();
     if (!c) return '';
-    return a ? `${c} ${a}` : c;
-  }, [cmd, args]);
+    const manualArgs = args.trim() ? args.trim().split(/\s+/) : [];
+    const tokens = [c, ...effectiveArgs, ...manualArgs];
+    return tokens.join(' ');
+  }, [cmd, args, effectiveArgs]);
 
   const applyPreset = (p: Preset) => {
     setCmd(p.cmd);
-    setArgs(p.args);
+    // Preset defaults live in `effectiveArgs`, never in the manual box.
+    // Reset manual args + chips so we don't re-send stale defaults.
+    setArgs('');
+    setActiveOptionIds([]);
     setLabel('');
     // Claude preset auto-selects structured mode; other presets use PTY.
     setMode(p.cmd === 'claude' ? 'persistent' : 'process');
@@ -80,7 +123,10 @@ export function SessionCreatePage() {
     }
     setLoading(true);
     try {
-      const argList = args.trim() ? args.trim().split(/\s+/) : [];
+      // Assemble in a stable order: preset defaults → chip args → manual args.
+      // `effectiveArgs` never overlaps the manual box, so no duplicates.
+      const manualArgs = args.trim() ? args.trim().split(/\s+/) : [];
+      const finalArgs = [...effectiveArgs, ...manualArgs];
       const serverRef: ServerRef = {
         id: server.id,
         name: server.name,
@@ -91,7 +137,8 @@ export function SessionCreatePage() {
         serverRef,
         {
           cmd: cmd.trim(),
-          args: argList,
+          args: finalArgs,
+          cwd: cwd.trim() || undefined,
           label: label.trim() || undefined,
           cols,
           rows,
@@ -144,11 +191,11 @@ export function SessionCreatePage() {
             <div className="preset-grid">
               {PRESETS.map((p) => (
                 <button
-                  key={p.label}
+                  key={p.id}
                   type="button"
                   className={
                     'preset-tile' +
-                    (cmd === p.cmd && args === p.args ? ' is-active' : '')
+                    (cmd === p.cmd ? ' is-active' : '')
                   }
                   onClick={() => applyPreset(p)}
                   title={p.hint}
@@ -210,6 +257,28 @@ export function SessionCreatePage() {
                 className="form-input-mono"
               />
             </div>
+            {selectedPreset?.options && selectedPreset.options.length > 0 && (
+              <div className="argument-options" aria-label="Common arguments">
+                {selectedPreset.options.map((option) => {
+                  const active = activeOptionIds.includes(option.id);
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={'argument-chip' + (active ? ' is-active' : '')}
+                      title={option.hint}
+                      onClick={() => {
+                        setActiveOptionIds((ids) => active
+                          ? ids.filter((id) => id !== option.id)
+                          : [...ids, option.id]);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {commandPreview && (
               <div className="command-preview">
                 <span className="command-preview-label">preview</span>
@@ -227,6 +296,26 @@ export function SessionCreatePage() {
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
+            </div>
+            <div className="field">
+              <label className="field-label">Working directory</label>
+              <div className="cwd-input-row">
+                <input
+                  className="form-input-mono"
+                  placeholder="Agent home directory"
+                  value={cwd}
+                  onChange={(event) => setCwd(event.target.value)}
+                  spellCheck={false}
+                />
+                <button type="button" onClick={() => setDirectoryPickerOpen(true)}>
+                  Choose
+                </button>
+              </div>
+              {cwd && (
+                <button type="button" className="btn-ghost cwd-clear" onClick={() => setCwd('')}>
+                  Clear directory
+                </button>
+              )}
             </div>
             <div className="form-row">
               <div className="field" style={{ flex: 1 }}>
@@ -262,6 +351,18 @@ export function SessionCreatePage() {
           </div>
         </div>
       </div>
+
+      {directoryPickerOpen && (
+        <DirectoryPickerModal
+          server={server}
+          value={cwd || undefined}
+          onSelect={(path) => {
+            setCwd(path);
+            setDirectoryPickerOpen(false);
+          }}
+          onClose={() => setDirectoryPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }
