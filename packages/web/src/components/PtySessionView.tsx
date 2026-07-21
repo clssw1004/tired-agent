@@ -34,6 +34,7 @@ import { TerminalView, type TerminalHandle } from './render-views';
 import { ChatTimeline } from './ChatTimeline';
 import { PtyInterventionBar } from './PtyInterventionBar';
 import { PtyInputBar } from './PtyInputBar';
+import { PtyMobileKeyboard } from './PtyMobileKeyboard';
 import {
   SpecialKeysBar,
   type ModifierKey,
@@ -129,6 +130,15 @@ export function PtySessionView({
    *  won't show again unless the session re-mounts. */
   const [tailBannerDismissed, setTailBannerDismissed] = useState(false);
 
+  // Auto-dismiss the truncation banner after 3s so it doesn't permanently
+  // occupy screen real estate. The user can always tap ✕ to dismiss sooner,
+  // or tap "加载完整历史" to load the full log. Timer resets on re-mount.
+  useEffect(() => {
+    if (!outputTail?.truncated || tailBannerDismissed) return;
+    const t = window.setTimeout(() => setTailBannerDismissed(true), 3000);
+    return () => window.clearTimeout(t);
+  }, [outputTail?.truncated, tailBannerDismissed]);
+
   // Structured mode state
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
@@ -139,6 +149,9 @@ export function PtySessionView({
    *  header so a desktop user can summon Ctrl+C / Esc without clicking the
    *  xterm canvas. Reset on every mount (per-session). */
   const [showControls, setShowControls] = useState(false);
+  /** Desktop detection: matches CSS breakpoint. Used to conditionally render
+   *  PtyInputBar (desktop) vs PtyMobileKeyboard (mobile). */
+  const [isDesktop] = useState(() => window.innerWidth >= 768);
 
   // ── Modifier key state (PTY mode). Lifted to this host so both
   //    SpecialKeysBar (button bar) and PtyInputBar (system keyboard via
@@ -643,33 +656,76 @@ export function PtySessionView({
         onResponse={(text) => void writeBytes(text)}
       />
 
-      <SpecialKeysBar
-        disabled={disabled}
-        structured={mode === 'persistent'}
-        modifiers={modifiers}
-        onSetModifier={setModifier}
-        onConsumeModifier={consumeModifier}
-        onKey={(bytes) => void writeBytes(bytes)}
-        forceVisible={showControls}
-      />
-
-      <PtyInputBar
-        disabled={disabled}
-        sending={false}
-        sessionId={sessionId}
-        placeholder={
-          disabled
-            ? '会话已结束'
-            : busy
-              ? 'Claude 处理中…'
-              : mode === 'persistent'
-                ? '输入消息…'
-                : '输入框 — 手机键盘直通'
-        }
-        onChange={(data) => void writeBytes(data)}
-        modifiers={modifiers}
-        onConsumeModifier={consumeModifier}
-      />
+      {mode === 'persistent' ? (
+        // ── Persistent (chat) mode: keep original input bar ────────
+        <>
+          <SpecialKeysBar
+            disabled={disabled}
+            structured={true}
+            modifiers={modifiers}
+            onSetModifier={setModifier}
+            onConsumeModifier={consumeModifier}
+            onKey={(bytes) => void writeBytes(bytes)}
+          />
+          <PtyInputBar
+            disabled={disabled}
+            sending={false}
+            sessionId={sessionId}
+            placeholder={
+              disabled
+                ? '会话已结束'
+                : busy
+                  ? 'Claude 处理中…'
+                  : '输入消息…'
+            }
+            onChange={(data) => void writeBytes(data)}
+            modifiers={modifiers}
+            onConsumeModifier={consumeModifier}
+          />
+        </>
+      ) : (
+        // ── PTY (process) mode: desktop gets PtyInputBar for physical
+        //    keyboard typing; mobile gets PtyMobileKeyboard (custom).
+        //    SpecialKeysBar only on desktop via ⌨ toggle (showControls).
+        <div className="pty-input-wrapper">
+          {showControls && (
+            <SpecialKeysBar
+              disabled={disabled}
+              structured={false}
+              modifiers={modifiers}
+              onSetModifier={setModifier}
+              onConsumeModifier={consumeModifier}
+              onKey={(bytes) => void writeBytes(bytes)}
+              forceVisible={true}
+            />
+          )}
+          {isDesktop ? (
+            <PtyInputBar
+              disabled={disabled}
+              sending={false}
+              sessionId={sessionId}
+              placeholder={
+                disabled
+                  ? '会话已结束'
+                  : busy
+                    ? 'Claude 处理中…'
+                    : '输入框 — 手机键盘直通'
+              }
+              onChange={(data) => void writeBytes(data)}
+              modifiers={modifiers}
+              onConsumeModifier={consumeModifier}
+            />
+          ) : (
+            <PtyMobileKeyboard
+              disabled={disabled}
+              modifiers={modifiers}
+              onSetModifier={setModifier}
+              onConsumeModifier={consumeModifier}
+              onKey={(bytes) => void writeBytes(bytes)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
