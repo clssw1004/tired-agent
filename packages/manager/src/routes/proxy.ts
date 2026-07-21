@@ -12,6 +12,10 @@
  *   POST   /v1/agents/:aid/sessions/:sid/resize    → resize PTY
  *   GET    /v1/agents/:aid/sessions/:sid/output    → fetch historical output
  *   GET    /v1/agents/:aid/sessions/:sid/stream    → SSE live passthrough
+ *   GET    /v1/agents/:aid/directories             → list directory entries (?path=)
+ *   GET    /v1/agents/:aid/directories/shortcuts   → favorites + recent
+ *   POST   /v1/agents/:aid/directories/favorites   → add favorite
+ *   DELETE /v1/agents/:aid/directories/favorites/:id → remove favorite
  *
  * The agent's token is passed as `?access_token=…` on every forwarded
  * request — that matches what HttpSseTransport does on the client side,
@@ -269,5 +273,49 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
       // Tell Fastify we handled the response ourselves.
       return reply;
     },
+  );
+
+  // ── Directory browser ─────────────────────────────────────────────────
+  // Order matters: the fixed `/shortcuts` and `/favorites` paths must be
+  // registered BEFORE the parameterized `:id` delete route so find-my-way
+  // never tries to interpret "shortcuts"/"favorites" as a favorite id.
+  // We also register `/shortcuts` before the parametrized `:aid/directories`
+  // listing route as a defensive measure — see task-4 brief.
+  app.get<{ Params: { aid: string } }>(
+    '/v1/agents/:aid/directories/shortcuts',
+    async (req, reply) =>
+      proxyJson(storage, req.params.aid, 'GET', '/v1/directories/shortcuts', undefined, reply),
+  );
+
+  app.get<{ Params: { aid: string } }>(
+    '/v1/agents/:aid/directories',
+    async (req, reply) => {
+      // Preserve any query params the browser sent (e.g. ?path=…) so the
+      // upstream `/v1/directories` listing can be paged/filtered. Fastify
+      // has already parsed req.query; we re-encode it via req.url to avoid
+      // losing repeated or unknown keys.
+      const queryString = req.url.split('?')[1] ?? '';
+      const upstreamPath = `/v1/directories${queryString ? `?${queryString}` : ''}`;
+      return proxyJson(storage, req.params.aid, 'GET', upstreamPath, undefined, reply);
+    },
+  );
+
+  app.post<{ Params: { aid: string } }>(
+    '/v1/agents/:aid/directories/favorites',
+    async (req, reply) =>
+      proxyJson(storage, req.params.aid, 'POST', '/v1/directories/favorites', req.body, reply),
+  );
+
+  app.delete<{ Params: { aid: string; id: string } }>(
+    '/v1/agents/:aid/directories/favorites/:id',
+    async (req, reply) =>
+      proxyJson(
+        storage,
+        req.params.aid,
+        'DELETE',
+        `/v1/directories/favorites/${encodeURIComponent(req.params.id)}`,
+        undefined,
+        reply,
+      ),
   );
 }
