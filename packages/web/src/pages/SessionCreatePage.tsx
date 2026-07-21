@@ -23,6 +23,33 @@ interface Preset {
   options?: ArgumentOption[];
 }
 
+// 32-char unambiguous alphabet: drops 0/1/l/o which are easy to misread or
+// confuse. Combined with the local timestamp the label is essentially unique
+// across sessions (32^8 × seconds = ~10^13).
+const LABEL_CHARS = 'abcdefghijkmnpqrstuvwxyz23456789';
+
+/**
+ * Generate a default session label when the user leaves the field empty.
+ * Format: `<8-char-random>_<YYYYMMDD>T<HHMMSS>` using local time. Example:
+ *   a3k9m2x8_20260721T143052
+ *
+ * The randomness disambiguates sessions opened in the same second; the
+ * timestamp makes it easy to spot when a session was created by glancing
+ * at the SessionCard list.
+ */
+function generateDefaultLabel(): string {
+  const rnd = Array.from(
+    { length: 8 },
+    () => LABEL_CHARS[Math.floor(Math.random() * LABEL_CHARS.length)],
+  ).join('');
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `${rnd}_${stamp}`;
+}
+
 // Common interactive shells / REPLs the user might want to start. Tapping a
 // preset populates the form so they don't have to remember the command.
 // Each preset may expose common argument shortcuts as toggleable chips.
@@ -139,7 +166,10 @@ export function SessionCreatePage() {
           cmd: cmd.trim(),
           args: finalArgs,
           cwd: cwd.trim() || undefined,
-          label: label.trim() || undefined,
+          // Auto-generate a memorable, unique label when the user leaves the
+          // field empty — otherwise SessionCard rows are visually identical
+          // when several sessions of the same command are open.
+          label: label.trim() || generateDefaultLabel(),
           cols,
           rows,
           mode,
@@ -292,7 +322,7 @@ export function SessionCreatePage() {
             <div className="field">
               <label className="field-label">Label (optional)</label>
               <input
-                placeholder="e.g. My Project"
+                placeholder="留空自动生成 a3k9m2x8_20260721T143052"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />

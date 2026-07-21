@@ -183,6 +183,19 @@ export interface FetchOutputResult {
   }>;
   /** Total bytes currently in the log file (for offset bookkeeping). */
   upTo: number;
+  /**
+   * True if the server returned fewer bytes than the file actually contains
+   * (the tail-mode response was clipped by `tail`/`limit`). When undefined
+   * the caller should treat it as `false` — older agents predate this
+   * field and the client must remain backward-compatible.
+   */
+  truncated?: boolean;
+  /**
+   * Total bytes in the log file at read time. Same as `upTo` in current
+   * implementations; exposed separately so the client UI can show
+   * "loaded X / total Y" without re-deriving it from the response.
+   */
+  totalBytes?: number;
 }
 
 /** Body of `POST /v1/sessions/:id/input`. */

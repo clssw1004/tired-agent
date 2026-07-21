@@ -7,7 +7,7 @@
  *   - PostgresStorage (via pg)
  */
 
-import { appendFileSync, statSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
+import { appendFileSync, statSync, readFileSync, existsSync, unlinkSync, openSync, closeSync, readSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -36,6 +36,17 @@ export interface Storage {
   readOutput(id: string, fromOffset: number, limit?: number): {
     chunks: Array<{ offset: number; data: Uint8Array }>;
     upTo: number;
+  };
+  /**
+   * Read the last `n` bytes of the session log via a backwards seek. Used by
+   * the client to land on a PTY session without paying the cost of streaming
+   * the entire log file when only the tail matters. Returns `truncated=false`
+   * when the whole file was returned (i.e. the log is smaller than `n`).
+   */
+  readOutputTail(id: string, n: number): {
+    chunks: Array<{ offset: number; data: Uint8Array }>;
+    upTo: number;
+    truncated: boolean;
   };
   /**
    * Delete all sessions whose `exitedAt` (or, for sessions still flagged
@@ -175,6 +186,31 @@ export function createSqliteStorage(dataDir: string): Storage {
     return { chunks: [{ offset: fromOffset, data: new Uint8Array(slice) }], upTo: total };
   }
 
+  function readOutputTail(id: string, n: number) {
+    // Backwards seek so we don't pay the cost of reading 50MB just to
+    // discard 49.9MB of it. openSync + readSync is the cheapest way to do
+    // this with built-ins; fs.createReadStream({start}) would also work
+    // but allocates a stream + promises for a single contiguous slice.
+    const logPath = join(dataDir, 'sessions', `${id}.log`);
+    if (!existsSync(logPath)) return { chunks: [], upTo: 0, truncated: false };
+    const total = statSync(logPath).size;
+    if (total <= 0 || n <= 0) return { chunks: [], upTo: total, truncated: false };
+    const want = Math.min(n, total);
+    const start = total - want;
+    const fd = openSync(logPath, 'r');
+    try {
+      const buf = Buffer.allocUnsafe(want);
+      readSync(fd, buf, 0, want, start);
+      return {
+        chunks: [{ offset: start, data: new Uint8Array(buf) }],
+        upTo: total,
+        truncated: want < total,
+      };
+    } finally {
+      closeSync(fd);
+    }
+  }
+
   async function close() { _db?.close(); _db = null; }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -197,7 +233,7 @@ export function createSqliteStorage(dataDir: string): Storage {
     };
   }
 
-  return { init, insert, update, delete: deleteSession, list, get, appendOutput, readOutput, pruneOlderThan, close };
+  return { init, insert, update, delete: deleteSession, list, get, appendOutput, readOutput, readOutputTail, pruneOlderThan, close };
 }
 
 // ─── MySQL ────────────────────────────────────────────────────────────────────
@@ -215,6 +251,7 @@ export const _mysqlStub: Storage = {
   get() { return undefined; },
   appendOutput() { return 0; },
   readOutput() { return { chunks: [], upTo: 0 }; },
+  readOutputTail() { throw new Error('not implemented'); },
   pruneOlderThan() { return 0; },
   async close() { /* noop */ },
 };
@@ -234,6 +271,7 @@ export const _postgresStub: Storage = {
   get() { return undefined; },
   appendOutput() { return 0; },
   readOutput() { return { chunks: [], upTo: 0 }; },
+  readOutputTail() { throw new Error('not implemented'); },
   pruneOlderThan() { return 0; },
   async close() { /* noop */ },
 };

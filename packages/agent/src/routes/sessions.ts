@@ -37,7 +37,15 @@ const ResizeSchema = z.object({
 const OutputQuerySchema = z.object({
   from: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(10 * 1024 * 1024).optional(),
-});
+  // `tail` reads only the last N bytes via a backwards seek — used by the
+  // client to fast-load into a session whose log is huge. Mutually
+  // exclusive with `from`/`limit`: an incremental replay path (from>0 or
+  // a small limit) and a one-shot tail path answer different questions.
+  tail: z.coerce.number().int().min(1).max(10 * 1024 * 1024).optional(),
+}).refine(
+  (q) => !(q.tail != null && (q.from !== 0 || q.limit != null)),
+  { message: 'tail is mutually exclusive with from/limit; omit from when using tail' },
+);
 
 export function registerSessionsRoutes(
   app: FastifyInstance,
@@ -169,6 +177,20 @@ export function registerSessionsRoutes(
           error: { code: 'VALIDATION_ERROR', message: parsed.error.message },
         });
       }
+      const tail = parsed.data.tail;
+      if (tail != null) {
+        const tailResult = storage.readOutputTail(id, tail);
+        return reply.code(200).send({
+          chunks: tailResult.chunks.map((c) => ({
+            offset: c.offset,
+            data: Buffer.from(c.data).toString('base64'),
+          })),
+          upTo: tailResult.upTo,
+          // Tail mode: truncated when the file was larger than `tail` bytes.
+          truncated: tailResult.truncated,
+          totalBytes: tailResult.upTo,
+        });
+      }
       const result = storage.readOutput(id, parsed.data.from, parsed.data.limit);
       return reply.code(200).send({
         chunks: result.chunks.map((c) => ({
@@ -176,6 +198,11 @@ export function registerSessionsRoutes(
           data: Buffer.from(c.data).toString('base64'),
         })),
         upTo: result.upTo,
+        // from/limit returns the whole remaining range by definition, so
+        // truncated is always false here — but we still emit the field so
+        // older clients that ignore the missing field see consistent shape.
+        truncated: false,
+        totalBytes: result.upTo,
       });
     },
   );

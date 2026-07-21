@@ -2363,3 +2363,30 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .argument-chip { min-height: 44px; }
   .cwd-input-row button { min-height: 44px; }
 }
+
+/* Tail-load truncation banner — appears between the terminal area and the
+   intervention bar when the PTY was opened via ?tail=64KB and the log is
+   larger than that. Clicking the inline button triggers a full reload. */
+.output-truncated-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: rgba(255, 200, 80, 0.12);
+  border-top: 1px solid rgba(255, 200, 80, 0.35);
+  border-bottom: 1px solid rgba(255, 200, 80, 0.35);
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+.output-truncated-banner button {
+  background: transparent;
+  border: 1px solid rgba(255, 200, 80, 0.5);
+  color: inherit;
+  padding: 3px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.output-truncated-banner button:active { background: rgba(255, 200, 80, 0.18); }
