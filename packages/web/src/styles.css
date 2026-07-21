@@ -2154,18 +2154,47 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .directory-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+/* ── Tab bar: toggle between "常用/最近" and "浏览目录" ─────────── */
+.directory-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.directory-tab {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.directory-tab:hover { color: var(--text); border-color: rgba(51,154,240,0.4); }
+.directory-tab.is-active {
+  background: rgba(51,154,240,0.18);
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .directory-shortcut-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 50%;
   overflow-y: auto;
+  flex: 1;
   padding-right: 2px;
 }
 .directory-shortcut-section {
@@ -2234,8 +2263,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 
 .directory-listing {
   flex: 1;
-  min-height: 120px;
-  max-height: 52%;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2321,12 +2349,6 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .directory-path {
     flex: 1 1 100%;
     order: 2;
-  }
-  .directory-shortcut-list {
-    max-height: 40%;
-  }
-  .directory-listing {
-    max-height: 46%;
   }
   .directory-modal-actions > button {
     flex-basis: calc(50% - 5px);

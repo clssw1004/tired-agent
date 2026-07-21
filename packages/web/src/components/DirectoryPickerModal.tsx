@@ -53,6 +53,13 @@ export function DirectoryPickerModal({
   const [error, setError] = useState<string | null>(null);
   const [savingFavorite, setSavingFavorite] = useState(false);
 
+  /** Active tab inside the modal body: 'shortcuts' shows the user's
+   *   favorites + recents for one-tap selection; 'browse' shows the
+   *   remote directory listing for manual navigation. Defaults to
+   *   shortcuts so the user can pick a favorite immediately without
+   *   scrolling through a file tree. */
+  const [activeTab, setActiveTab] = useState<'shortcuts' | 'browse'>('shortcuts');
+
   // Escape to dismiss — mirrors the shared `Modal` primitive so the
   // muscle memory of the rest of the SPA carries over.
   useEffect(() => {
@@ -263,7 +270,28 @@ export function DirectoryPickerModal({
         )}
 
         <div className="directory-body">
-          {(favorites.length > 0 || recent.length > 0) && (
+          <div className="directory-tabs" role="tablist" aria-label="目录选择视图切换">
+            <button
+              type="button"
+              className={'directory-tab' + (activeTab === 'shortcuts' ? ' is-active' : '')}
+              role="tab"
+              aria-selected={activeTab === 'shortcuts'}
+              onClick={() => setActiveTab('shortcuts')}
+            >
+              ★ 常用/最近
+            </button>
+            <button
+              type="button"
+              className={'directory-tab' + (activeTab === 'browse' ? ' is-active' : '')}
+              role="tab"
+              aria-selected={activeTab === 'browse'}
+              onClick={() => setActiveTab('browse')}
+            >
+              📁 浏览目录
+            </button>
+          </div>
+
+          {activeTab === 'shortcuts' && (
             <div className="directory-shortcut-list">
               {favorites.length > 0 && (
                 <div className="directory-shortcut-section">
@@ -276,9 +304,7 @@ export function DirectoryPickerModal({
                       onClick={() => pickShortcut(fav.path)}
                       title={fav.path}
                     >
-                      <span className="directory-shortcut-icon" aria-hidden>
-                        ★
-                      </span>
+                      <span className="directory-shortcut-icon" aria-hidden>★</span>
                       <span className="directory-shortcut-name">{fav.name}</span>
                       <span className="directory-shortcut-path">{fav.path}</span>
                     </button>
@@ -296,9 +322,7 @@ export function DirectoryPickerModal({
                       onClick={() => pickShortcut(r.path)}
                       title={r.path}
                     >
-                      <span className="directory-shortcut-icon" aria-hidden>
-                        ⏱
-                      </span>
+                      <span className="directory-shortcut-icon" aria-hidden>⏱</span>
                       <span className="directory-shortcut-name">{r.path}</span>
                       <span className="directory-shortcut-path">
                         {formatRelativeTime(r.lastUsedAt)}
@@ -307,34 +331,37 @@ export function DirectoryPickerModal({
                   ))}
                 </div>
               )}
+              {favorites.length === 0 && recent.length === 0 && (
+                <div className="directory-status">暂未收藏任何目录</div>
+              )}
             </div>
           )}
 
-          <div className="directory-listing" aria-busy={loading}>
-            {loading && entries.length === 0 ? (
-              <div className="directory-status">加载中…</div>
-            ) : entries.length === 0 ? (
-              <div className="directory-status">空目录</div>
-            ) : (
-              <ul className="directory-entry-list" role="list">
-                {entries.map((entry) => (
-                  <li key={entry.path} className="directory-entry-item">
-                    <button
-                      type="button"
-                      className="directory-entry"
-                      onClick={() => handleEntryClick(entry)}
-                      aria-label={`进入目录 ${entry.name}`}
-                    >
-                      <span className="directory-entry-icon" aria-hidden>
-                        📁
-                      </span>
-                      <span className="directory-entry-name">{entry.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {activeTab === 'browse' && (
+            <div className="directory-listing" aria-busy={loading}>
+              {loading && entries.length === 0 ? (
+                <div className="directory-status">加载中…</div>
+              ) : entries.length === 0 ? (
+                <div className="directory-status">空目录</div>
+              ) : (
+                <ul className="directory-entry-list" role="list">
+                  {entries.map((entry) => (
+                    <li key={entry.path} className="directory-entry-item">
+                      <button
+                        type="button"
+                        className="directory-entry"
+                        onClick={() => handleEntryClick(entry)}
+                        aria-label={`进入目录 ${entry.name}`}
+                      >
+                        <span className="directory-entry-icon" aria-hidden>📁</span>
+                        <span className="directory-entry-name">{entry.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="modal-actions directory-modal-actions">
