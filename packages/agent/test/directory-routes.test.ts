@@ -223,6 +223,28 @@ test('routes require an auth token', async (t) => {
   assert.equal(response.statusCode, 401);
 });
 
+test('route rejects a file path as a directory', async (t) => {
+  const fx = await buildFixture();
+  t.after(() => fx.close());
+
+  const filePath = join(fx.homeDirectory, 'README.md');
+  const response = await fx.app.inject({
+    method: 'GET',
+    url: `/v1/directories?path=${encodeURIComponent(filePath)}`,
+    headers: { authorization: 'Bearer test-token' },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.code, 'NOT_A_DIRECTORY');
+});
+
+test('route rejects unauthenticated directory access', async (t) => {
+  const fx = await buildFixture();
+  t.after(() => fx.close());
+
+  const response = await fx.app.inject({ method: 'GET', url: '/v1/directories' });
+  assert.equal(response.statusCode, 401);
+});
+
 test('error responses never leak the underlying stack trace', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
