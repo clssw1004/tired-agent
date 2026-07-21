@@ -142,6 +142,10 @@ const PTY_KEYS: ButtonDef[] = [
   { kind: 'special', label: '→', specs: SPECIAL_KEY_MODIFIER_SPECS['ArrowRight'], title: 'Arrow right' },
   // BREAK (\x1c, FS): pauses debugger / some TUI prompts. No modifier variant.
   { kind: 'special', label: 'Brk', specs: { base: '\x1c' }, title: 'Break — pause / debugger interrupt' },
+  // Enter — sends \r, useful on mobile to confirm [y/N] prompts or finish
+  // a command without summoning the soft keyboard. Long-press sends double
+  // \r for cases where one Enter is lost (e.g. after Ctrl+C).
+  { kind: 'special', label: '⏎', specs: { base: '\r' }, longPressBytes: '\r\r', title: 'Enter (long: double Enter)' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────
