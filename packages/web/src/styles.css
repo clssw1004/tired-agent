@@ -2276,7 +2276,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .directory-modal {
     width: calc(100% - 16px);
     max-width: none;
-    max-height: 92vh;
+    /* Fixed (not max-) height so the modal keeps its full 92vh frame on
+       mobile even when the listing is short. Without this the modal would
+       collapse to fit its content and the favorite/listing split would feel
+       uneven. Body has overflow:hidden so any extreme overflow still clips
+       gracefully. */
+    height: 92vh;
     padding: 6px 10px calc(10px + env(safe-area-inset-bottom));
     gap: 6px;
   }
