@@ -34,7 +34,6 @@ import { TerminalView, type TerminalHandle } from './render-views';
 import { ChatTimeline } from './ChatTimeline';
 import { PtyInterventionBar } from './PtyInterventionBar';
 import { PtyInputBar } from './PtyInputBar';
-import { ClaudeCommandsBar } from './ClaudeCommandsBar';
 import {
   SpecialKeysBar,
   type ModifierKey,
@@ -631,13 +630,6 @@ export function PtySessionView({
         terminal={mode === 'persistent' ? null : termReady ? termRef.current : null}
         onResponse={(text) => void writeBytes(text)}
       />
-
-      {sessionCmd === 'claude' && (
-        <ClaudeCommandsBar
-          disabled={disabled}
-          onCommand={(text) => void writeBytes(text + '\r')}
-        />
-      )}
 
       <SpecialKeysBar
         disabled={disabled}
