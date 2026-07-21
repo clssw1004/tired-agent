@@ -71,10 +71,15 @@ interface Props {
    *  The host uses this to show a "jump to latest" pill when streaming
    *  output piles up off-screen. */
   onScroll?: (atBottom: boolean) => void;
+  /** Fires whenever xterm's cols/rows settle to a new value after fit() or a
+   *  ResizeObserver tick. Receives the new grid dimensions. The host forwards
+   *  this to the backend PTY so its output wraps to match the visible area.
+   *  Only fires when cols or rows actually changed since the previous tick. */
+  onResize?: (cols: number, rows: number) => void;
 }
 
 export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalView(
-  { className, onReady, onUserInput, onSelectionChange, onScroll },
+  { className, onReady, onUserInput, onSelectionChange, onScroll, onResize },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,12 +89,18 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
   const userInputCbRef = useRef<((data: string) => void) | undefined>(onUserInput);
   const selectionCbRef = useRef<((text: string) => void) | undefined>(onSelectionChange);
   const scrollCbRef = useRef<((atBottom: boolean) => void) | undefined>(onScroll);
+  const resizeCbRef = useRef<((cols: number, rows: number) => void) | undefined>(onResize);
+  // Last cols/rows we reported to the host — used so tryFit() only fires the
+  // onResize callback when something actually changed (otherwise every
+  // ResizeObserver tick during a no-op layout shift would round-trip).
+  const lastReportedRef = useRef<{ cols: number; rows: number } | null>(null);
 
   // Keep callback refs fresh so terminal.onData / onSelectionChange / onScroll
   // always invoke the latest host handler without re-binding the xterm sub.
   userInputCbRef.current = onUserInput;
   selectionCbRef.current = onSelectionChange;
   scrollCbRef.current = onScroll;
+  resizeCbRef.current = onResize;
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -164,6 +175,19 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
           term.options.lineHeight = computeLineHeight(fs);
         }
         fit.fit();
+        // Report the new grid dimensions so the host can push them to the
+        // backend PTY. Skipped when nothing actually changed to avoid
+        // round-tripping identical values on every ResizeObserver tick.
+        const cols = term.cols;
+        const rows = term.rows;
+        const prev = lastReportedRef.current;
+        if ((!prev || prev.cols !== cols || prev.rows !== rows) && cols > 0 && rows > 0) {
+          lastReportedRef.current = { cols, rows };
+          const cb = resizeCbRef.current;
+          if (cb) {
+            try { cb(cols, rows); } catch { /* ignore */ }
+          }
+        }
       } catch { /* container may be 0×0 briefly */ }
     };
 

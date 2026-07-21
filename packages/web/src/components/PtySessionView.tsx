@@ -34,6 +34,7 @@ import { TerminalView, type TerminalHandle } from './render-views';
 import { ChatTimeline } from './ChatTimeline';
 import { PtyInterventionBar } from './PtyInterventionBar';
 import { PtyInputBar } from './PtyInputBar';
+import { ClaudeCommandsBar } from './ClaudeCommandsBar';
 import {
   SpecialKeysBar,
   type ModifierKey,
@@ -60,6 +61,18 @@ const TYPING_TIMEOUT_MS = 500;
 const TICK_INTERVAL_MS = 250;
 const DECODER = new TextDecoder('utf-8', { fatal: false });
 const ENCODER = new TextEncoder();
+
+/** Debounce window for pushing PTY cols/rows back to the backend. ResizeObserver
+ *  fires many times during a single window drag; we coalesce them into one
+ *  resize request every {@link RESIZE_DEBOUNCE_MS}. 200ms is short enough that
+ *  the user never sees mis-aligned output for long, but long enough that a
+ *  continuous drag produces ≤ a handful of requests. */
+const RESIZE_DEBOUNCE_MS = 200;
+
+/** Safety valve for the RAF output batching. RAF can theoretically be starved
+ *  (background tab, slow frame), which would silently delay PTY output. If
+ *  the pending buffer hasn't flushed in this many ms we flush it anyway. */
+const OUTPUT_FLUSH_TIMEOUT_MS = 50;
 
 /** Fast-load only the last N bytes of the session log on first open. A
  *  50MB Claude log would otherwise cost ~10s of base64 round-trip on a
@@ -118,6 +131,12 @@ export function PtySessionView({
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
   const [streaming, setStreaming] = useState(false);
 
+  /** Desktop-only: when true, force PtyInputBar + SpecialKeysBar to render
+   *  even though the CSS hides them at ≥768px. Toggled via a button in the
+   *  header so a desktop user can summon Ctrl+C / Esc without clicking the
+   *  xterm canvas. Reset on every mount (per-session). */
+  const [showControls, setShowControls] = useState(false);
+
   // ── Modifier key state (PTY mode). Lifted to this host so both
   //    SpecialKeysBar (button bar) and PtyInputBar (system keyboard via
   //    <input>) see the same toggle state.
@@ -153,6 +172,20 @@ export function PtySessionView({
   const [, force] = useState(0);
   const sessionRef = useRef({ cmd: '', args: [] as string[] });
 
+  // ── PTY resize tracking. TerminalView reports new cols/rows via the
+  //    onResize callback; we debounce and forward to the backend.
+  const lastSentResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const resizeTimerRef = useRef<number | null>(null);
+
+  // ── RAF output batching. The SSE onChunk handler appends incoming PTY
+  //    bytes to `pendingBytesRef`; a single rAF callback flushes them into
+  //    xterm so a torrent of small chunks becomes one render frame.
+  //    A parallel timeout (`OUTPUT_FLUSH_TIMEOUT_MS`) forces a flush if RAF
+  //    is starved (background tab, slow frame) so we never visibly lag.
+  const pendingBytesRef = useRef('');
+  const flushFrameRef = useRef<number | null>(null);
+  const flushTimeoutRef = useRef<number | null>(null);
+
   const disabled = sessionStatus === 'exited';
 
   // Heartbeat tick — drives the typing indicator + status pill updates.
@@ -161,6 +194,33 @@ export function PtySessionView({
       force((n) => (n + 1) & 0xffff);
     }, TICK_INTERVAL_MS);
     return () => window.clearInterval(t);
+  }, []);
+
+  // Cancel pending resize + flush remaining output on unmount so we don't
+  // leave a setTimeout firing into a stale session, and so the very last
+  // bytes from the SSE close aren't lost when the component goes away.
+  useEffect(() => {
+    return () => {
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
+      if (flushFrameRef.current !== null) {
+        window.cancelAnimationFrame(flushFrameRef.current);
+        flushFrameRef.current = null;
+      }
+      // Best-effort: flush any bytes still pending. We can't await — this
+      // is a synchronous unmount path. Drop on the floor if xterm is gone.
+      const pending = pendingBytesRef.current;
+      if (pending) {
+        pendingBytesRef.current = '';
+        termRef.current?.write(pending);
+      }
+      if (flushTimeoutRef.current !== null) {
+        window.clearTimeout(flushTimeoutRef.current);
+        flushTimeoutRef.current = null;
+      }
+    };
   }, []);
 
   // ── PTY writer: shared by xterm.onUserInput, PtyInputBar.onChange, and
@@ -175,6 +235,69 @@ export function PtySessionView({
       setTransportError((err as Error).message);
     }
   }, [disabled, serverRef, sessionId, agentId]);
+
+  // ── PTY resize handler. Fires from TerminalView's onResize whenever the
+  //    xterm grid settles to new cols/rows. Debounced so a continuous window
+  //    drag produces one POST every RESIZE_DEBOUNCE_MS, not one per RAF tick.
+  //    Only meaningful in PTY (process) mode — structured sessions have no
+  //    backend PTY to resize.
+  const handleTermResize = useCallback((cols: number, rows: number) => {
+    if (modeRef.current !== 'process') return;
+    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) return;
+    const last = lastSentResizeRef.current;
+    if (last && last.cols === cols && last.rows === rows) return;
+    if (resizeTimerRef.current !== null) {
+      window.clearTimeout(resizeTimerRef.current);
+    }
+    resizeTimerRef.current = window.setTimeout(() => {
+      resizeTimerRef.current = null;
+      // Re-check after debounce — session might have exited in the meantime.
+      if (modeRef.current !== 'process') return;
+      const transport = createHttpSseTransport();
+      transport
+        .resizeSession(serverRef, sessionId, cols, rows, agentId)
+        .then(() => {
+          lastSentResizeRef.current = { cols, rows };
+        })
+        .catch((err) => setTransportError((err as Error).message));
+    }, RESIZE_DEBOUNCE_MS);
+  }, [serverRef, sessionId, agentId]);
+
+  // ── Output batching: append + schedule. RAF coalesces a burst of small
+  //    SSE chunks into a single xterm write per frame; the safety timeout
+  //    forces a flush if RAF is starved so we never silently lose output.
+  //    flushPendingBytes is declared first because scheduleFlush captures it.
+  const flushPendingBytes = useCallback(() => {
+    if (flushTimeoutRef.current !== null) {
+      window.clearTimeout(flushTimeoutRef.current);
+      flushTimeoutRef.current = null;
+    }
+    const pending = pendingBytesRef.current;
+    if (!pending) return;
+    pendingBytesRef.current = '';
+    const wasAtBottom = termRef.current?.isAtBottom() ?? true;
+    termRef.current?.write(pending);
+    if (wasAtBottom) termRef.current?.scrollToBottom();
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushFrameRef.current === null) {
+      flushFrameRef.current = window.requestAnimationFrame(() => {
+        flushFrameRef.current = null;
+        flushPendingBytes();
+      });
+    }
+    if (flushTimeoutRef.current === null) {
+      flushTimeoutRef.current = window.setTimeout(() => {
+        flushTimeoutRef.current = null;
+        if (flushFrameRef.current !== null) {
+          window.cancelAnimationFrame(flushFrameRef.current);
+          flushFrameRef.current = null;
+        }
+        flushPendingBytes();
+      }, OUTPUT_FLUSH_TIMEOUT_MS);
+    }
+  }, [flushPendingBytes]);
 
   // ── Pull the complete history on demand. Called from the truncation
   //    banner when the user realizes the 64KB tail isn't enough context.
@@ -321,9 +444,13 @@ export function PtySessionView({
                 setStructuredContents([...output.contents]);
               }
             } else {
-              const wasAtBottom = termRef.current?.isAtBottom() ?? true;
-              termRef.current?.write(text);
-              if (wasAtBottom) termRef.current?.scrollToBottom();
+              // PTY mode: buffer the bytes and let scheduleFlush coalesce a
+              // burst of small chunks into one xterm write per RAF frame.
+              // We still call the renderer eagerly so any future Claude
+              // detection logic sees the raw text stream (no behavioral
+              // change for GenericPtyRenderer's no-op processChunk).
+              pendingBytesRef.current += text;
+              scheduleFlush();
               rendererRef.current.processChunk(text, {
                 session: sessionRef.current,
                 streaming: true,
@@ -414,6 +541,18 @@ export function PtySessionView({
           <span className="chat-title-name">{sessionLabel || '…'}</span>
           <span className="chat-title-host">{serverRef.name} · {serverRef.baseUrl}</span>
         </div>
+        {mode === 'process' && (
+          <button
+            type="button"
+            className={'chat-toggle-controls' + (showControls ? ' is-on' : '')}
+            onClick={() => setShowControls((v) => !v)}
+            aria-pressed={showControls}
+            aria-label="Toggle terminal controls"
+            title={showControls ? '隐藏控制条' : '显示控制条（Esc / Ctrl+C / 方向键…）'}
+          >
+            {showControls ? '⌨ 隐藏控制条' : '⌨ 控制条'}
+          </button>
+        )}
         <span className={'chat-status-dot dot-' + sessionStatus} aria-label={'session ' + sessionStatus} />
       </header>
 
@@ -445,6 +584,7 @@ export function PtySessionView({
               onUserInput={(data) => void writeBytes(data)}
               onSelectionChange={(text) => setSelection(text)}
               onScroll={(ab) => setAtBottom(ab)}
+              onResize={handleTermResize}
             />
             {selection && (
               <button
@@ -492,6 +632,13 @@ export function PtySessionView({
         onResponse={(text) => void writeBytes(text)}
       />
 
+      {sessionCmd === 'claude' && (
+        <ClaudeCommandsBar
+          disabled={disabled}
+          onCommand={(text) => void writeBytes(text + '\r')}
+        />
+      )}
+
       <SpecialKeysBar
         disabled={disabled}
         structured={mode === 'persistent'}
@@ -499,6 +646,7 @@ export function PtySessionView({
         onSetModifier={setModifier}
         onConsumeModifier={consumeModifier}
         onKey={(bytes) => void writeBytes(bytes)}
+        forceVisible={showControls}
       />
 
       <PtyInputBar

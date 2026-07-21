@@ -347,27 +347,69 @@ export function SessionCreatePage() {
                 </button>
               )}
             </div>
-            <div className="form-row">
-              <div className="field" style={{ flex: 1 }}>
-                <label className="field-label">Cols</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={cols}
-                  onChange={(e) => setCols(Number(e.target.value))}
-                />
-              </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label className="field-label">Rows</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={rows}
-                  onChange={(e) => setRows(Number(e.target.value))}
-                />
-              </div>
+            <div className="terminal-size-section">
+              <details className="terminal-size-details">
+                <summary>
+                  <span>终端尺寸</span>
+                  <span className="terminal-size-current">
+                    {cols} × {rows}
+                  </span>
+                </summary>
+                <div className="field-hint">
+                  PTY 终端的初始列宽/行高。会话期间会根据浏览器窗口大小自动调整（无需手动维护），这里只影响创建瞬间的初始值。
+                </div>
+                <div className="terminal-size-presets" role="group" aria-label="Terminal size presets">
+                  <button
+                    type="button"
+                    className={'terminal-size-preset' + (cols === 80 && rows === 24 ? ' is-active' : '')}
+                    onClick={() => { setCols(80); setRows(24); }}
+                    title="默认尺寸，跟随浏览器窗口"
+                  >
+                    <span className="terminal-size-preset-label">跟随窗口</span>
+                    <span className="terminal-size-preset-value">80 × 24</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={'terminal-size-preset' + (cols === 120 && rows === 40 ? ' is-active' : '')}
+                    onClick={() => { setCols(120); setRows(40); }}
+                    title="桌面宽屏 / 大表格输出"
+                  >
+                    <span className="terminal-size-preset-label">宽屏</span>
+                    <span className="terminal-size-preset-value">120 × 40</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={'terminal-size-preset' + (cols === 60 && rows === 20 ? ' is-active' : '')}
+                    onClick={() => { setCols(60); setRows(20); }}
+                    title="小窗口 / 低分辨率屏幕"
+                  >
+                    <span className="terminal-size-preset-label">紧凑</span>
+                    <span className="terminal-size-preset-value">60 × 20</span>
+                  </button>
+                </div>
+                <div className="form-row">
+                  <div className="field" style={{ flex: 1 }}>
+                    <label className="field-label">Cols</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={cols}
+                      onChange={(e) => setCols(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label className="field-label">Rows</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={rows}
+                      onChange={(e) => setRows(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
 

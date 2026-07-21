@@ -556,6 +556,33 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   cursor: pointer;
   flex-shrink: 0;
 }
+/* Desktop-only toggle that summons the terminal controls (SpecialKeysBar)
+   on demand. Hidden on mobile because the bar is already always visible
+   there. Hidden in structured mode by the host (not rendered at all). */
+.chat-toggle-controls {
+  display: none;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.chat-toggle-controls:hover { color: var(--text); border-color: rgba(51,154,240,0.4); }
+.chat-toggle-controls.is-on {
+  background: rgba(51,154,240,0.18);
+  color: var(--text);
+  border-color: var(--accent);
+}
+@media (min-width: 768px) {
+  .chat-toggle-controls { display: inline-flex; align-items: center; }
+}
 .chat-avatar {
   width: 36px; height: 36px;
   border-radius: 50%;
@@ -1209,10 +1236,68 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .special-key.modifier.is-one-shot { animation: none; opacity: 1; }
 }
 
-/* Hide on desktop — physical keyboard is available. */
+/* Hide on desktop — physical keyboard is available. The host can force the
+   bar to render via the .is-forced class, applied when the user toggles the
+   "show controls" header button on a PTY session. */
 @media (min-width: 768px) {
-  .special-keys { display: none; }
+  .special-keys:not(.is-forced) { display: none; }
+}
 
+/* ── ClaudeCommandsBar — quick-launch chips for common slash commands ── */
+/* Sits above SpecialKeysBar in PTY mode (PtySessionView only mounts it for
+   `cmd === 'claude'`). Always visible regardless of viewport: desktop users
+   who toggle the controls bar on will see it there too. */
+.claude-commands {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(13,13,26,0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.claude-commands::-webkit-scrollbar { display: none; }
+.claude-command-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.claude-command-chip:hover {
+  background: rgba(51,154,240,0.18);
+  border-color: rgba(51,154,240,0.4);
+}
+.claude-command-chip:active { transform: scale(0.96); }
+.claude-command-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+.claude-command-glyph {
+  display: inline-block;
+  font-size: 11px;
+  opacity: 0.7;
+}
+/* Slightly larger touch target on touch-only devices. */
+@media (hover: none) {
+  .claude-command-chip { min-height: 36px; }
 }
 
 @keyframes ct-pulse {
@@ -1869,6 +1954,78 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   color: var(--text-dim);
   margin-bottom: 8px;
 }
+
+/* ── Terminal size section in SessionCreatePage ────────────────────── */
+/* Collapsible advanced section. Default collapsed because the default 80×24
+   is fine for nearly every session — the size will auto-track the browser
+   window while the session is live anyway. Users who need a specific
+   non-default (e.g. 120×40 for very wide terminals) can expand. */
+.terminal-size-section { margin-top: 4px; }
+.terminal-size-details summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  user-select: none;
+}
+.terminal-size-details summary::-webkit-details-marker { display: none; }
+.terminal-size-details summary::before {
+  content: '▸';
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+.terminal-size-details[open] summary::before { transform: rotate(90deg); }
+.terminal-size-current {
+  font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.terminal-size-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+}
+.terminal-size-preset {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  min-width: 84px;
+}
+.terminal-size-preset:hover {
+  background: rgba(51,154,240,0.10);
+  border-color: rgba(51,154,240,0.4);
+}
+.terminal-size-preset.is-active {
+  background: rgba(51,154,240,0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.terminal-size-preset-label { font-weight: 500; }
+.terminal-size-preset-value {
+  font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.terminal-size-preset.is-active .terminal-size-preset-value { color: var(--text); }
 
 /* ── Special keys for structured mode ───────────────────────────────── */
 .special-keys-structured {

@@ -174,12 +174,25 @@ interface Props {
    *  tap/long-press fires both the resolved bytes AND the consumption
    *  in the same tick. */
   onConsumeModifier?: (key: ModifierKey) => void;
+  /** Force the bar to render even on desktop (where the CSS hides it by
+   *  default at ≥768px). Toggled by the host's "show controls" header
+   *  button so a desktop user can summon Ctrl+C / Esc without first
+   *  clicking the xterm canvas. */
+  forceVisible?: boolean;
 }
 
-export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier, onConsumeModifier }: Props) {
+export function SpecialKeysBar({ onKey, disabled, structured, modifiers, onSetModifier, onConsumeModifier, forceVisible }: Props) {
   const keys = structured ? STRUCTURED_KEYS : PTY_KEYS;
   return (
-    <div className={'special-keys' + (structured ? ' special-keys-structured' : '')} role="toolbar" aria-label={structured ? 'Chat controls' : 'Terminal special keys'}>
+    <div
+      className={
+        'special-keys' +
+        (structured ? ' special-keys-structured' : '') +
+        (forceVisible ? ' is-forced' : '')
+      }
+      role="toolbar"
+      aria-label={structured ? 'Chat controls' : 'Terminal special keys'}
+    >
       {keys.map((k) => {
         if (k.kind === 'modifier') {
           const mode = modifiers?.[k.modifier] ?? 'off';
