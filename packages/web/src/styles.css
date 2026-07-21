@@ -2424,3 +2424,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   -webkit-tap-highlight-color: transparent;
 }
 .output-truncated-banner button:active { background: rgba(255, 200, 80, 0.18); }
+
+.output-truncated-banner .banner-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 14px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0.7;
+  -webkit-tap-highlight-color: transparent;
+}
+.output-truncated-banner .banner-dismiss:hover,
+.output-truncated-banner .banner-dismiss:active { opacity: 1; }

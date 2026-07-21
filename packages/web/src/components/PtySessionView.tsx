@@ -124,6 +124,10 @@ export function PtySessionView({
   const [outputTail, setOutputTail] = useState<
     { truncated: boolean; totalBytes: number; loadedBytes: number } | null
   >(null);
+  /** When the user clicks ✕ on the truncation banner, dismiss it so it
+   *  doesn't take up space. The session stays in tail mode; the banner
+   *  won't show again unless the session re-mounts. */
+  const [tailBannerDismissed, setTailBannerDismissed] = useState(false);
 
   // Structured mode state
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
@@ -614,13 +618,21 @@ export function PtySessionView({
           )}
         </div>
 
-      {outputTail?.truncated && (
+      {outputTail?.truncated && !tailBannerDismissed && (
         <div className="output-truncated-banner" role="status">
           <span>
             已加载尾部 {formatBytes(outputTail.loadedBytes)} / 共 {formatBytes(outputTail.totalBytes)}
           </span>
           <button type="button" onClick={() => void loadFullHistory()}>
             加载完整历史
+          </button>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setTailBannerDismissed(true)}
+            aria-label="关闭"
+          >
+            ✕
           </button>
         </div>
       )}
