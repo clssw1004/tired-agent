@@ -351,7 +351,7 @@ export function SessionCreatePage() {
                 </button>
               )}
               <div className="field-hint">
-                终端尺寸会在会话期间自动跟随浏览器窗口调整（80×24 起步），无需手动设置。
+                终端尺寸会在会话开始后自动匹配浏览器窗口宽度，无需手动设置。电脑和移动端都按实际宽度调整。
               </div>
             </div>
           </div>
