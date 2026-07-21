@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ModifierKey, ModifierState } from './SpecialKeysBar';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -58,17 +59,25 @@ const ACTION_ROW: KeyDef[] = [
 ];
 
 const CTRL_ROW: KeyDef[] = [
+  { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
+  { id: 'tab', label: 'Tab', base: '\t', kind: 'control', width: 1.2 },
+  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
   { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
   { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
   { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
   { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
-  { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
-  { id: 'tab', label: 'Tab', base: '\t', kind: 'control', width: 1.2 },
-  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
+  // Collapse button — only shown in expanded mode; hidden via CSS.
+  { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
 
 const COLLAPSED_KEYS: KeyDef[] = [
-  ...CTRL_ROW,
+  { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
+  { id: 'tab', label: 'Tab', base: '\t', kind: 'control', width: 1.2 },
+  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
+  { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
+  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
+  { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
+  { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
   { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.2 },
   { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 1.2 },
   { id: 'expand', label: '🔤', base: '', kind: 'ui' },
@@ -125,7 +134,7 @@ function KeyButton({ def, active, disabled, onTap }: {
     (def.id === 'space' ? ' pty-key-wide' : '');
   return (
     <button type="button" className={cls}
-      style={def.width ? { flex: `${def.width} 0 auto` } : undefined}
+      style={def.width ? { flex: `${def.width} 1 0%` } : undefined}
       disabled={disabled}
       onPointerDown={(e) => { e.preventDefault(); onTap(def); }}
     >{def.label}</button>
@@ -145,6 +154,8 @@ interface Props {
 export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsumeModifier, onKey }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [imeOpen, setImeOpen] = useState(false);
+  // Desktop detection: match CSS breakpoint. Not a hook, safe to use in render.
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
 
   const handleTap = useCallback((def: KeyDef) => {
     if (disabled) return;
@@ -158,7 +169,8 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
         return;
       }
       case 'ui': {
-        if (def.id === 'expand') { setExpanded((v) => !v); return; }
+        if (def.id === 'expand') { setExpanded(true); return; }
+        if (def.id === 'collapse') { setExpanded(false); return; }
         if (def.id === 'ime') { setImeOpen(true); return; }
         return;
       }
@@ -179,20 +191,33 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
       disabled={disabled} onTap={handleTap} />
   );
 
+  // Desktop: render nothing. The CSS already hides the keyboard at >=768px,
+  // but removing the DOM entirely avoids wasted work and any layout edge cases.
+  if (isDesktop) return null;
+
   return (
-    <div className={'pty-keyboard' + (expanded ? ' pty-keyboard-expanded' : '')}>
-      {expanded ? (
-        <>
-          <div className="pty-keyboard-row">{LETTER_ROW_1.map(r)}</div>
-          <div className="pty-keyboard-row">{LETTER_ROW_2.map(r)}</div>
-          <div className="pty-keyboard-row">{LETTER_ROW_3.map(r)}</div>
-          <div className="pty-keyboard-row">{ACTION_ROW.map(r)}</div>
-          <div className="pty-keyboard-row">{CTRL_ROW.map(r)}</div>
-        </>
-      ) : (
-        <div className="pty-keyboard-row">{COLLAPSED_KEYS.map(r)}</div>
+    <>
+      {!imeOpen && (
+        <div className={'pty-keyboard' + (expanded ? ' pty-keyboard-expanded' : '')}>
+          {expanded ? (
+            <>
+              <div className="pty-keyboard-row">{LETTER_ROW_1.map(r)}</div>
+              <div className="pty-keyboard-row">{LETTER_ROW_2.map(r)}</div>
+              <div className="pty-keyboard-row">{LETTER_ROW_3.map(r)}</div>
+              <div className="pty-keyboard-row">{ACTION_ROW.map(r)}</div>
+              <div className="pty-keyboard-row">{CTRL_ROW.map(r)}</div>
+            </>
+          ) : (
+            <div className="pty-keyboard-row">{COLLAPSED_KEYS.map(r)}</div>
+          )}
+        </div>
       )}
-      {imeOpen && <ImeInput onSend={handleImeSend} onClose={() => setImeOpen(false)} />}
-    </div>
+      {/* IME overlay is portaled to document.body so position:fixed is
+          unaffected by .pty-keyboard's backdrop-filter (Safari bug). */}
+      {imeOpen && createPortal(
+        <ImeInput onSend={handleImeSend} onClose={() => setImeOpen(false)} />,
+        document.body,
+      )}
+    </>
   );
 }
