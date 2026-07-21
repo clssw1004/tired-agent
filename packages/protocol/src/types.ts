@@ -126,6 +126,38 @@ export interface OutputChunk {
   data: Uint8Array;
 }
 
+/** A single entry (directory) returned when browsing the filesystem. */
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+}
+
+/** Response shape for browsing a directory (`GET /v1/directories`). */
+export interface DirectoryListing {
+  path: string;
+  parent: string | null;
+  entries: DirectoryEntry[];
+}
+
+/** A user-saved favorite directory. */
+export interface DirectoryFavorite {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/** A recently used directory (for quick reuse when creating sessions). */
+export interface RecentDirectory {
+  path: string;
+  lastUsedAt: number;
+}
+
+/** Directory shortcuts (favorites + recents) for the session-create UI. */
+export interface DirectoryShortcuts {
+  favorites: DirectoryFavorite[];
+  recent: RecentDirectory[];
+}
+
 /**
  * A reference to a server daemon, stored locally on the client.
  * `baseUrl` is the HTTPS root, `token` is the bearer token to authenticate
