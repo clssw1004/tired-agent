@@ -527,6 +527,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
      width (e.g. xterm canvas) so the page never grows a horizontal
      scrollbar on narrow portrait phones. */
   min-width: 0;
+  /* Safety net: the xterm canvas or any wide child should never push the
+     page wider than the viewport on mobile. overflow: hidden clips any
+     extreme overflow (e.g. a fit() timing race that leaves the canvas
+     briefly too wide before the ResizeObserver fires). */
+  overflow-x: hidden;
   background:
     radial-gradient(ellipse at top, rgba(51,154,240,0.05), transparent 60%),
     var(--bg);
@@ -1170,6 +1175,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
    the breakpoint below so it never crowds the xterm view. */
 .special-keys {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px 8px;
   background: rgba(13,13,26,0.92);
@@ -1177,25 +1183,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  /* 9 buttons rarely fit a portrait phone in one screen — let the bar
-     scroll horizontally so the user can swipe to reach later buttons.
-     The bar itself is constrained to max-width: 100% so it never grows
-     a page-level scrollbar. */
+  /* Constrain to the parent width so flex-wrap actually wraps instead of
+     overflowing. Previously used overflow-x: auto + scrollbar hiding, but
+     some WebViews still show the scrollbar visually. wrap is cleaner. */
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  /* Hide the scrollbar on every WebView family. -ms-overflow-style covers
-     legacy Edge/IE, the pseudo-element covers Chrome/Safari. */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
-.special-keys::-webkit-scrollbar { display: none; }
 .special-key {
   flex: 0 0 auto;
-  min-width: 36px;
-  height: 32px;
-  padding: 0 8px;
+  min-width: 28px;
+  height: 30px;
+  padding: 0 6px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-input);
