@@ -29,6 +29,7 @@ import type { SessionSpec } from '@tired-agent/protocol';
 import type { SessionRecord } from './types.js';
 import { createSessionRecord } from './types.js';
 import type { Storage } from './storage.js';
+import type { DirectoryStore } from '../directory/types.js';
 import { log } from '../util/log.js';
 
 export interface LiveSession {
@@ -53,7 +54,10 @@ export type SessionEvent =
 const live = new Map<string, LiveSession>();
 
 export class SessionManager {
-  constructor(private readonly storage: Storage) {}
+  constructor(
+    private readonly storage: Storage,
+    private readonly directoryStore?: DirectoryStore,
+  ) {}
 
   /** Create a new session. */
   async create(spec: SessionSpec): Promise<SessionRecord> {
@@ -62,12 +66,22 @@ export class SessionManager {
     this.storage.insert(record);
 
     if (record.mode === 'persistent') {
-      return this._createPersistent(id, record);
+      const result = this._createPersistent(id, record);
+      // Record cwd as recently used. Failure here is non-fatal — the
+      // session is already created in storage; the recent list is best-
+      // effort and must never block or fail the request.
+      await this.recordRecentCwd(record.cwd);
+      return result;
     }
 
     // PTY mode: spawn immediately.
     try {
-      return this._spawnAndAttach(id, record, []);
+      const result = this._spawnAndAttach(id, record, []);
+      // Only record cwd after a successful spawn — a failed spawn means
+      // the user will not actually be working in that directory, so
+      // including it in the recent list would be misleading.
+      await this.recordRecentCwd(record.cwd);
+      return result;
     } catch (err) {
       this.storage.update({ id, status: 'exited', exitCode: -1, exitedAt: Date.now() });
       const msg = (err as Error).message;
@@ -78,6 +92,20 @@ export class SessionManager {
         );
       }
       throw err;
+    }
+  }
+
+  /**
+   * Append a directory to the recent list. Swallows all errors — the
+   * session has already been created, and a recent-write failure must
+   * never cause the session creation request to fail.
+   */
+  private async recordRecentCwd(cwd: string | null): Promise<void> {
+    if (!cwd || !this.directoryStore) return;
+    try {
+      await this.directoryStore.recordRecent(cwd);
+    } catch (err) {
+      log.warn({ err, cwd }, 'failed to record recent session directory');
     }
   }
 

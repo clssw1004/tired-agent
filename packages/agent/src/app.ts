@@ -7,9 +7,11 @@ import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
 import type { Storage } from './session/storage.js';
 import type { SessionManager } from './session/manager.js';
+import type { DirectoryService, DirectoryStore } from './directory/types.js';
 import { registerAuth } from './auth.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerStreamRoute } from './routes/stream.js';
+import { registerDirectoryRoutes } from './routes/directories.js';
 import { log, initLogger } from './util/log.js';
 import { config as loadDotenv } from 'dotenv';
 import { join } from 'node:path';
@@ -18,6 +20,8 @@ export async function createApp(
   cfg: ServerConfig,
   storage: Storage,
   manager: SessionManager,
+  directoryService: DirectoryService,
+  directoryStore: DirectoryStore,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
@@ -27,6 +31,7 @@ export async function createApp(
   registerAuth(app, cfg.token);
   registerSessionsRoutes(app, manager, storage, cfg);
   registerStreamRoute(app, manager, storage, cfg);
+  registerDirectoryRoutes(app, directoryService, directoryStore);
 
   // Health check (no auth required)
   app.get('/health', async (_req, reply) =>

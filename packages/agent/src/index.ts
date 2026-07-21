@@ -30,6 +30,8 @@ import { registerShutdown } from './shutdown.js';
 import { log, initLogger } from './util/log.js';
 import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
+import { createDirectoryStore } from './directory/store.js';
+import { createDirectoryService } from './directory/service.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
@@ -123,7 +125,18 @@ export async function main(cfg: ServerConfig) {
   if (reconciled > 0) log.warn({ reconciled }, 'orphaned sessions marked exited on startup');
   manager.startCleanupTimer();
 
-  const app = await createApp(cfg, storage, manager);
+  // Initialise directory shortcuts (favorites + recent). These power the
+  // /v1/directories routes; failure here is non-fatal because the rest of
+  // the agent can still serve PTY sessions without shortcuts.
+  const directoryStore = createDirectoryStore(cfg.dataDir);
+  try {
+    await directoryStore.init();
+  } catch (err) {
+    log.error({ err }, 'directory store init failed; directory routes will be empty');
+  }
+  const directoryService = createDirectoryService();
+
+  const app = await createApp(cfg, storage, manager, directoryService, directoryStore);
 
   registerShutdown(app, storage, manager);
 
