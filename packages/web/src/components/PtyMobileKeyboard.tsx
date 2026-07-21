@@ -49,9 +49,11 @@ const LETTER_ROW_3: KeyDef[] = [
 ];
 
 const ACTION_ROW: KeyDef[] = [
-  { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.2 },
-  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.3 },
-  { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 3.5 },
+  { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.0 },
+  { id: 'slash', label: '/', base: '/', kind: 'action', width: 1.0 },
+  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.2 },
+  { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 3.2 },
+  { id: 'dot', label: '.', base: '.', kind: 'action', width: 1.0 },
   { id: 'enter2', label: '⏎', base: '\r', kind: 'action', width: 1.5 },
 ];
 
@@ -67,8 +69,6 @@ const CTRL_ROW: KeyDef[] = [
 
 const COLLAPSED_KEYS: KeyDef[] = [
   ...CTRL_ROW,
-  { id: 'cd-c', label: 'c', base: 'c', ctrl: '\x03', shift: 'C', kind: 'control' },
-  { id: 'cd-d', label: 'd', base: 'd', ctrl: '\x04', shift: 'D', kind: 'control' },
   { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.2 },
   { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 1.2 },
   { id: 'expand', label: '🔤', base: '', kind: 'ui' },

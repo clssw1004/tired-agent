@@ -672,20 +672,22 @@ export function PtySessionView({
           />
         </>
       ) : (
-        // ── PTY (process) mode: custom mobile keyboard replaces the
-        //    original SpecialKeysBar + PtyInputBar on mobile. On desktop
-        //    (>=768px) the keyboard is hidden by CSS and the user types
-        //    directly into xterm; the SpecialKeysBar toggle still works.
+        // ── PTY (process) mode: custom mobile keyboard handles all
+        //    input on mobile; on desktop the keyboard is hidden by CSS
+        //    and the user types directly into xterm. The SpecialKeysBar
+        //    toggle (⌨ in header) only shows on desktop via showControls.
         <>
-          <SpecialKeysBar
-            disabled={disabled}
-            structured={false}
-            modifiers={modifiers}
-            onSetModifier={setModifier}
-            onConsumeModifier={consumeModifier}
-            onKey={(bytes) => void writeBytes(bytes)}
-            forceVisible={showControls}
-          />
+          {showControls && (
+            <SpecialKeysBar
+              disabled={disabled}
+              structured={false}
+              modifiers={modifiers}
+              onSetModifier={setModifier}
+              onConsumeModifier={consumeModifier}
+              onKey={(bytes) => void writeBytes(bytes)}
+              forceVisible={true}
+            />
+          )}
           <PtyMobileKeyboard
             disabled={disabled}
             modifiers={modifiers}
