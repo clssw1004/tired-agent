@@ -50,6 +50,9 @@ export interface TerminalHandle {
   isAtBottom: () => boolean;
   /** Scroll the viewport to the bottom of the scrollback. */
   scrollToBottom: () => void;
+  /** Wipe the visible grid + scrollback. Used by "load full history" so a
+   *  tail replay doesn't appear on top of the existing 64KB slice. */
+  clear: () => void;
 }
 
 interface Props {
@@ -270,6 +273,7 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       return buf.viewportY + term.rows >= buf.length - 1;
     },
     scrollToBottom: () => { termRef.current?.scrollToBottom(); },
+    clear: () => { termRef.current?.clear(); },
   }), []);
 
   return <div ref={containerRef} className={'terminal-view ' + (className ?? '')} />;

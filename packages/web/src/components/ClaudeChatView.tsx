@@ -4,7 +4,11 @@
  * This is a **self-contained** component for Claude chat sessions. It does NOT
  * share state, effects, or rendering logic with PtySessionView/TerminalView.
  *
- * Layout (top to bottom):
+ * History replay uses the full log (no `tail` parameter): the NDJSON parser
+ * feeds messages into the renderer as complete JSON objects, so any byte-level
+ * truncation in the middle of a line would corrupt the JSON boundary and
+ * silently drop events. PtySessionView is the only place that opts into the
+ * tail fast-load.
  *   1. Header           — back button, session label, status dot.
  *   2. ChatTimeline     — message timeline.
  *   3. ControlBar       — interrupt button, execution mode badge.

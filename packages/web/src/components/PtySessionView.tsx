@@ -61,6 +61,20 @@ const TICK_INTERVAL_MS = 250;
 const DECODER = new TextDecoder('utf-8', { fatal: false });
 const ENCODER = new TextEncoder();
 
+/** Fast-load only the last N bytes of the session log on first open. A
+ *  50MB Claude log would otherwise cost ~10s of base64 round-trip on a
+ *  phone network; 64KB covers ~3-4 terminal screens which is enough to
+ *  see the latest prompt + recent tool output. The user can then opt to
+ *  load the full history with the banner button. */
+const PTY_OUTPUT_TAIL_BYTES = 64 * 1024;
+
+/** Pretty-print a byte count for the truncation banner. */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /** Modifier keys start inactive. Toggle buttons in SpecialKeysBar flip
  *  these to 'oneShot' (short press, consumed by next non-modifier key) or
  *  'sticky' (long press, persists until tapped again). See
@@ -92,6 +106,12 @@ export function PtySessionView({
   const [copyFlash, setCopyFlash] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** Truncation state for the fast-load tail. null = unknown (still loading
+   *  or full read). When `truncated` is true we render a banner offering to
+   *  pull the rest of the history on demand. */
+  const [outputTail, setOutputTail] = useState<
+    { truncated: boolean; totalBytes: number; loadedBytes: number } | null
+  >(null);
 
   // Structured mode state
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
@@ -156,6 +176,28 @@ export function PtySessionView({
     }
   }, [disabled, serverRef, sessionId, agentId]);
 
+  // ── Pull the complete history on demand. Called from the truncation
+  //    banner when the user realizes the 64KB tail isn't enough context.
+  //    Wipes xterm first so the tail slice doesn't get re-rendered on top
+  //    of the full replay.
+  const loadFullHistory = useCallback(async () => {
+    const transport = createHttpSseTransport();
+    try {
+      termRef.current?.clear();
+      const full = await transport.fetchOutput(serverRef, sessionId, 0, undefined, agentId);
+      let seeded = '';
+      for (const chunk of full.chunks) {
+        seeded += decodeText(base64ToBytes(chunk.data));
+      }
+      if (seeded) termRef.current?.write(seeded);
+      termRef.current?.scrollToBottom();
+      const totalBytes = full.totalBytes ?? full.upTo;
+      setOutputTail({ truncated: false, totalBytes, loadedBytes: 0 });
+    } catch (err) {
+      setTransportError((err as Error).message);
+    }
+  }, [serverRef, sessionId, agentId]);
+
   // ── Copy selected text from xterm to clipboard. Mobile Safari doesn't
   //    surface a copy button on long-press selection by default, so we
   //    show our own floating action button whenever a non-empty selection
@@ -203,8 +245,30 @@ export function PtySessionView({
 
     (async () => {
       try {
-        const replay = await transport.fetchOutput(serverRef, sessionId, 0, undefined, agentId);
+        // Fast-load: ask the server for only the last 64KB of the log via a
+        // backwards seek. The full history is still available on demand via
+        // {@link loadFullHistory}. Persistent (chat) sessions skip this —
+        // they feed the bytes through a structured NDJSON parser that needs
+        // complete messages, so a tail would corrupt the JSON boundary.
+        const isPersistent = modeRef.current === 'persistent';
+        const replay = await transport.fetchOutput(
+          serverRef,
+          sessionId,
+          0,
+          undefined,
+          agentId,
+          isPersistent ? undefined : PTY_OUTPUT_TAIL_BYTES,
+        );
         if (cancelled) return;
+
+        // Track truncation so the banner can offer "load full history".
+        const loadedBytes = replay.chunks.reduce(
+          (s, c) => s + base64ToBytes(c.data).byteLength,
+          0,
+        );
+        const totalBytes = replay.totalBytes ?? replay.upTo;
+        const truncated = replay.truncated === true && !isPersistent;
+        setOutputTail({ truncated, totalBytes, loadedBytes });
 
         // Use the renderer from the sessionCmd effect, or fallback.
         const currentMode = modeRef.current;
@@ -410,6 +474,17 @@ export function PtySessionView({
             </>
           )}
         </div>
+
+      {outputTail?.truncated && (
+        <div className="output-truncated-banner" role="status">
+          <span>
+            已加载尾部 {formatBytes(outputTail.loadedBytes)} / 共 {formatBytes(outputTail.totalBytes)}
+          </span>
+          <button type="button" onClick={() => void loadFullHistory()}>
+            加载完整历史
+          </button>
+        </div>
+      )}
 
       <PtyInterventionBar
         key={mode === 'persistent' ? 'persistent' : termReady ? 'ready' : 'pending'}

@@ -375,9 +375,22 @@ export class HttpSseTransport implements Transport {
     fromOffset: number,
     limit?: number,
     agentId?: string,
+    /**
+     * When set, ask the server to read only the last `n` bytes via a
+     * backwards seek (much faster than replaying 50MB on every session
+     * re-open). Mutually exclusive with `from`/`limit` server-side; when
+     * provided we drop `from` from the URL so the server's refine check
+     * doesn't trip on `from !== 0`.
+     */
+    tail?: number,
   ): Promise<FetchOutputResult> {
-    const params = new URLSearchParams({ from: String(fromOffset) });
-    if (limit != null) params.set('limit', String(limit));
+    const params = new URLSearchParams();
+    if (tail != null) {
+      params.set('tail', String(tail));
+    } else {
+      params.set('from', String(fromOffset));
+      if (limit != null) params.set('limit', String(limit));
+    }
     const res = await this.fetchImpl(
       this.sessionUrl(ref, id, `/output?${params.toString()}`, agentId),
       { headers: authHeaders(ref) },
