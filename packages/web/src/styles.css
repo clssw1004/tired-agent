@@ -1268,16 +1268,151 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .special-keys:not(.is-forced) { display: none; }
 }
 
-/* ── ClaudeCommandsBar — quick-launch chips for common slash commands ── */
-/* Sits above SpecialKeysBar in PTY mode (PtySessionView only mounts it for
-   `cmd === 'claude'`). Always visible regardless of viewport: desktop users
-   who toggle the controls bar on will see it there too. */
 @keyframes ct-pulse {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1;    }
 }
 @media (prefers-reduced-motion: reduce) {
   .intervention-bar { animation: none; }
+}
+
+/* ── PtyMobileKeyboard — custom on-screen keyboard for PTY mode ────── */
+/* Replaces the always-visible input bar on mobile. Two modes: collapsed
+   (one row of control keys) and expanded (full QWERTY + controls).
+   Hidden on desktop where the physical keyboard / xterm canvas is used. */
+.pty-keyboard {
+  flex-shrink: 0;
+  background: rgba(13,13,26,0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pty-keyboard-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 6px;
+  justify-content: center;
+}
+/* Collapsed row is slightly tighter to fit all 12 buttons. */
+.pty-collapsed-row {
+  gap: 3px;
+  padding: 3px 6px;
+}
+/* Bottom ctrl row gets a bit more separation. */
+.pty-ctrl-row {
+  padding-bottom: 4px;
+}
+/* ── Key buttons ───────────────────────────────────────────────────── */
+.pty-key {
+  flex: 1 0 auto;
+  min-width: 0;
+  height: 38px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, border-color 0.1s, transform 0.08s;
+}
+.pty-key:active { transform: scale(0.95); background: rgba(51,154,240,0.14); }
+.pty-key:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Letter keys — centered mono text. Slightly shorter than control keys
+   so the rows have visual rhythm. */
+.pty-key-letter {
+  height: 36px;
+  font-size: 14px;
+  font-family: inherit;
+}
+/* Space bar — wider, subtly different style. */
+.pty-key-wide {
+  flex: 3.5 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+/* Modifier key — active state highlight. */
+.pty-key-mod {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.pty-key-mod.pty-key-active {
+  background: rgba(51,154,240,0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+/* Generic active state (e.g. shifted letter). */
+.pty-key-active {
+  background: rgba(51,154,240,0.12);
+  border-color: var(--accent);
+}
+
+/* ── IME floating input ────────────────────────────────────────────── */
+.pty-ime-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 300;
+  background: rgba(13,13,26,0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+}
+.pty-ime-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pty-ime-bar input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* prevent iOS zoom */
+  outline: none;
+}
+.pty-ime-bar input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(51,154,240,0.25);
+}
+.pty-ime-close {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Hide keyboard on desktop — physical keyboard is available. */
+@media (min-width: 768px) {
+  .pty-keyboard { display: none; }
 }
 
 /* Touch targets ≥ 44px on touch-only devices (mobile-first). */

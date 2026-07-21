@@ -34,6 +34,7 @@ import { TerminalView, type TerminalHandle } from './render-views';
 import { ChatTimeline } from './ChatTimeline';
 import { PtyInterventionBar } from './PtyInterventionBar';
 import { PtyInputBar } from './PtyInputBar';
+import { PtyMobileKeyboard } from './PtyMobileKeyboard';
 import {
   SpecialKeysBar,
   type ModifierKey,
@@ -643,33 +644,57 @@ export function PtySessionView({
         onResponse={(text) => void writeBytes(text)}
       />
 
-      <SpecialKeysBar
-        disabled={disabled}
-        structured={mode === 'persistent'}
-        modifiers={modifiers}
-        onSetModifier={setModifier}
-        onConsumeModifier={consumeModifier}
-        onKey={(bytes) => void writeBytes(bytes)}
-        forceVisible={showControls}
-      />
-
-      <PtyInputBar
-        disabled={disabled}
-        sending={false}
-        sessionId={sessionId}
-        placeholder={
-          disabled
-            ? '会话已结束'
-            : busy
-              ? 'Claude 处理中…'
-              : mode === 'persistent'
-                ? '输入消息…'
-                : '输入框 — 手机键盘直通'
-        }
-        onChange={(data) => void writeBytes(data)}
-        modifiers={modifiers}
-        onConsumeModifier={consumeModifier}
-      />
+      {mode === 'persistent' ? (
+        // ── Persistent (chat) mode: keep original input bar ────────
+        <>
+          <SpecialKeysBar
+            disabled={disabled}
+            structured={true}
+            modifiers={modifiers}
+            onSetModifier={setModifier}
+            onConsumeModifier={consumeModifier}
+            onKey={(bytes) => void writeBytes(bytes)}
+          />
+          <PtyInputBar
+            disabled={disabled}
+            sending={false}
+            sessionId={sessionId}
+            placeholder={
+              disabled
+                ? '会话已结束'
+                : busy
+                  ? 'Claude 处理中…'
+                  : '输入消息…'
+            }
+            onChange={(data) => void writeBytes(data)}
+            modifiers={modifiers}
+            onConsumeModifier={consumeModifier}
+          />
+        </>
+      ) : (
+        // ── PTY (process) mode: custom mobile keyboard replaces the
+        //    original SpecialKeysBar + PtyInputBar on mobile. On desktop
+        //    (>=768px) the keyboard is hidden by CSS and the user types
+        //    directly into xterm; the SpecialKeysBar toggle still works.
+        <>
+          <SpecialKeysBar
+            disabled={disabled}
+            structured={false}
+            modifiers={modifiers}
+            onSetModifier={setModifier}
+            onConsumeModifier={consumeModifier}
+            onKey={(bytes) => void writeBytes(bytes)}
+            forceVisible={showControls}
+          />
+          <PtyMobileKeyboard
+            disabled={disabled}
+            modifiers={modifiers}
+            onSetModifier={setModifier}
+            onConsumeModifier={consumeModifier}
+            onKey={(bytes) => void writeBytes(bytes)}
+          />
+        </>
+      )}
     </div>
   );
 }
