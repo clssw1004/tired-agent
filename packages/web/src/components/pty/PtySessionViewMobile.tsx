@@ -70,7 +70,15 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
       <div
         className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
-        onClick={() => mode !== 'persistent' && termRef.current?.focus()}
+        onClick={() => {
+          // Mobile intentionally does NOT focus xterm's hidden textarea.
+          // On touch devices that focus summons the system IME and buries
+          // our on-screen PtyMobileKeyboard. Bytes are piped to the PTY
+          // through sendInput regardless of focus state, so the terminal
+          // doesn't need to be the active element to receive input.
+          // Persistent (chat) mode mounts ChatTimeline — no xterm, no-op.
+          void mode;
+        }}
       >
         {mode === 'persistent' ? (
           <ChatTimeline contents={structuredContents} streaming={streaming} />
