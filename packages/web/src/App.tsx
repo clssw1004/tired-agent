@@ -17,7 +17,7 @@ import { ToastProvider } from './components/Toast';
  */
 function AppNav() {
   const auth = useAuth();
-  const { navHidden } = useNav();
+  const { navHidden, toggleNav } = useNav();
   if (auth.status !== 'logged-in') return null;
   return (
     <nav className={'app-nav' + (navHidden ? ' is-hidden' : '')}>
@@ -31,6 +31,16 @@ function AppNav() {
       {auth.managerBaseUrl && (
         <div className="app-nav-meta">{auth.managerBaseUrl}</div>
       )}
+      <button
+        type="button"
+        className="btn-ghost app-nav-fullscreen"
+        onClick={toggleNav}
+        aria-label={navHidden ? 'Show top nav' : 'Hide top nav'}
+        aria-pressed={navHidden}
+        title={navHidden ? '显示顶部菜单' : '隐藏顶部菜单（移动端）'}
+      >
+        <span aria-hidden>⛶</span>
+      </button>
       <button className="btn-ghost" onClick={auth.logout}>Logout</button>
     </nav>
   );

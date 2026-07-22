@@ -23,7 +23,6 @@ import { TerminalView } from '../render-views';
 import { ChatTimeline } from '../ChatTimeline';
 import { PtyInterventionBar } from '../PtyInterventionBar';
 import { PtyMobileKeyboard } from '../PtyMobileKeyboard';
-import { useNav } from '../../store/NavContext';
 
 export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
   const {
@@ -43,11 +42,6 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
     : 'live';
 
   const disabled = sessionStatus === 'exited';
-
-  /** Mobile-only: toggle the top nav (Agents / Onboarding) to reclaim its
-   *  height (~56px) for the terminal. The actual `.app-nav` element lives
-   *  in App.tsx and reads the same context. */
-  const { navHidden, toggleNav } = useNav();
 
   const STATUS_LABEL: Record<typeof status, string> = {
     typing: 'typing…',
@@ -74,16 +68,6 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
         </span>
         <span className={'chat-status-dot dot-' + sessionStatus} aria-hidden />
       </header>
-      <button
-        type="button"
-        className="chat-fullscreen-toggle"
-        onClick={toggleNav}
-        aria-label={navHidden ? 'Show top nav' : 'Hide top nav'}
-        aria-pressed={navHidden}
-        title={navHidden ? '显示顶部菜单' : '隐藏顶部菜单'}
-      >
-        {navHidden ? '⌄' : '⌃'}
-      </button>
 
       <div
         className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
