@@ -152,7 +152,7 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       // it gates the on-screen echo, not the event stream.
       disableStdin: true,
       allowProposedApi: true,
-      scrollback: 5000,
+      scrollback: 2000,
       convertEol: false,
     });
     const fit = new FitAddon();
@@ -226,7 +226,12 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
     });
 
     // Scroll — host decides whether to show a "jump to latest" pill when
-    // streaming output piles up off-screen.
+    // streaming output piles up off-screen. We RAF-coalesce scroll events
+    // because touch-scroll on mobile fires onScroll many times per frame;
+    // calling back to the host (which setStates → re-renders PtySessionView)
+    // on every tick competes with the scroll for the same main thread,
+    // causing visible jank. One callback per frame is enough — the host only
+    // cares about the latest atBottom state.
     const computeAtBottom = (): boolean => {
       const buf = term.buffer.active;
       // viewportY is the row at the top of the visible window; if the
@@ -234,10 +239,15 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
       // pinned. Allow a 1-row slop for sub-pixel rounding.
       return buf.viewportY + term.rows >= buf.length - 1;
     };
+    let scrollRaf: number | null = null;
     const scrollSub = term.onScroll(() => {
-      const cb = scrollCbRef.current;
-      if (!cb) return;
-      try { cb(computeAtBottom()); } catch { /* ignore */ }
+      if (scrollRaf !== null) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = null;
+        const cb = scrollCbRef.current;
+        if (!cb) return;
+        try { cb(computeAtBottom()); } catch { /* ignore */ }
+      });
     });
 
     termRef.current = term;
@@ -246,6 +256,7 @@ export const TerminalView = forwardRef<TerminalHandle, Props>(function TerminalV
 
     return () => {
       cancelAnimationFrame(raf);
+      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       ro.disconnect();
       writeSub.dispose();
       inputSub.dispose();

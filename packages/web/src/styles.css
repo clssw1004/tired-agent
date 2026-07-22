@@ -739,6 +739,12 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   /* Hide the horizontal scrollbar some WebViews add when the canvas is
      slightly wider than the viewport. */
   overflow-x: hidden;
+  /* Mobile touch-scroll perf: tell the browser this is a native pan target
+     so it can run the scroll on the compositor thread instead of waiting
+     on JS touch handlers. -webkit-overflow-scrolling: touch enables the
+     legacy iOS momentum-scroll path. Both are cheap and additive. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .terminal-view .xterm-viewport::-webkit-scrollbar {
   width: 6px;
