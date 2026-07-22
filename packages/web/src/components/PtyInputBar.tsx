@@ -164,54 +164,61 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter,
     const native = e.nativeEvent as unknown as InputEvent;
     if (composingRef.current || native.isComposing) return;
 
-    // ── Modifier interception ────────────────────────────────────────
-    // When any modifier is active (oneShot or sticky via SpecialKeysBar
-    // toggle), intercept the next keystroke, compute the modified bytes,
-    // consume one-shot modifiers, and ship the result.
-    if (modifiers && (modifiers.ctrl !== 'off' || modifiers.shift !== 'off')) {
-      // 1) Special keys with modifier variants (Tab + arrows) — the same
-      //    spec map the button bar uses, so behavior stays consistent.
-      const spec = SPECIAL_KEY_MODIFIER_SPECS[e.key];
-      if (spec) {
-        e.preventDefault();
-        onChange(resolveBytes(spec, modifiers));
-        onConsumeModifier?.('ctrl');
-        onConsumeModifier?.('shift');
-        return;
-      }
-      // 2) Single-character printable letter: Ctrl→control byte,
-      //    Shift→uppercase, both→control byte (shift has no effect on
-      //    control codes). Reject if a physical modifier is also held —
-      //    those keys go through the existing native handler below.
-      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        let bytes: string;
-        if (modifiers.ctrl !== 'off') {
-          const code = e.key.toUpperCase().charCodeAt(0);
-          bytes = (code >= 0x40 && code <= 0x5f)
-            ? String.fromCharCode(code - 0x40)
-            : e.key;
-        } else {
-          bytes = e.key;
-        }
-        if (modifiers.shift !== 'off') bytes = bytes.toUpperCase();
-        onChange(bytes);
-        onConsumeModifier?.('ctrl');
-        onConsumeModifier?.('shift');
-        return;
-      }
+    // Physical modifier keys (held by the user) act like a one-shot modifier:
+    // the browser manages key-up on its own, so we don't consume them, but we
+    // DO route them through the same resolveBytes path so Shift+Tab emits
+    // \x1b[Z (back-tab), Shift+Arrow emits \x1b[1;2X, Ctrl+letter emits a
+    // control byte, etc. Cmd on macOS maps to Ctrl for terminal purposes.
+    const physicalCtrl = e.ctrlKey || e.metaKey;
+    const physicalShift = e.shiftKey;
+    const physicalAlt = e.altKey;
+    const effective: ModifierState = {
+      ctrl: physicalCtrl ? 'oneShot' : (modifiers?.ctrl ?? 'off'),
+      shift: physicalShift ? 'oneShot' : (modifiers?.shift ?? 'off'),
+    };
+    const anyModifier = effective.ctrl !== 'off' || effective.shift !== 'off';
+
+    // ── Special keys with modifier variants (Tab + arrows) ─────────
+    // Always resolve through SPECIAL_KEY_MODIFIER_SPECS so physical
+    // Shift+Tab / Shift+Arrow / Ctrl+Arrow all produce the correct bytes.
+    const spec = SPECIAL_KEY_MODIFIER_SPECS[e.key];
+    if (spec && (anyModifier || !physicalAlt)) {
+      e.preventDefault();
+      onChange(resolveBytes(spec, effective));
+      // Only consume toggle modifier state — physical modifiers release
+      // themselves when the user lifts the key.
+      onConsumeModifier?.('ctrl');
+      onConsumeModifier?.('shift');
+      return;
     }
 
-    // Special keys that <input> doesn't reflect in `value`: arrows, escape,
-    // tab, ctrl+*, function keys. Translate to terminal bytes.
+    // ── Printable letter with any modifier ────────────────────────
+    // Ctrl→control byte, Shift→uppercase, both→control byte (shift has
+    // no visible effect on control codes but is consumed either way).
+    if (e.key.length === 1 && !physicalAlt && anyModifier) {
+      e.preventDefault();
+      let bytes: string;
+      if (effective.ctrl !== 'off') {
+        const code = e.key.toUpperCase().charCodeAt(0);
+        bytes = (code >= 0x40 && code <= 0x5f)
+          ? String.fromCharCode(code - 0x40)
+          : e.key;
+      } else {
+        bytes = e.key;
+      }
+      if (effective.shift !== 'off') bytes = bytes.toUpperCase();
+      onChange(bytes);
+      onConsumeModifier?.('ctrl');
+      onConsumeModifier?.('shift');
+      return;
+    }
+
+    // ── Plain special keys (no modifier variants) ────────────────
+    // Tab/arrows already handled above via SPECIAL_KEY_MODIFIER_SPECS.
+    // Enter and Escape have no modifier variants in this app.
     const map: Record<string, string> = {
       Enter: '\r',
-      Tab: '\t',
       Escape: '\x1b',
-      ArrowUp: '\x1b[A',
-      ArrowDown: '\x1b[B',
-      ArrowRight: '\x1b[C',
-      ArrowLeft: '\x1b[D',
     };
     const mapped = map[e.key];
     if (mapped) {
@@ -223,10 +230,10 @@ export function PtyInputBar({ disabled, sending, placeholder, onChange, onEnter,
       }
       return;
     }
-    // Physical Ctrl+<key> → control byte. (Toggle-Ctrl is handled above;
-    // when both physical Ctrl and a toggle modifier are active we let
-    // this branch handle it once and skip the toggle path.)
-    if (e.ctrlKey && e.key.length === 1) {
+    // Physical Ctrl+<key> fallback for keys not in spec map (shouldn't
+    // normally fire because the letter branch above already handled it,
+    // but kept as a safety net for unusual keys like F1-F12).
+    if (physicalCtrl && e.key.length === 1) {
       const code = e.key.toUpperCase().charCodeAt(0);
       if (code >= 0x40 && code <= 0x5f) {
         e.preventDefault();
