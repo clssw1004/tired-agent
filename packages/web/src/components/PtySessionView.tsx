@@ -409,6 +409,12 @@ export function PtySessionView({
         }
 
         setConnected(true);
+        // Clear any prior transport error — if we got far enough to call
+        // subscribe() successfully, the connection is healthy. Without this
+        // a transient earlier failure (caught at line 218/245/303/449/453)
+        // would keep status='error' forever, making the header show
+        // "disconnected: <reason>" even on a fully live session.
+        setTransportError(null);
 
         subscription = transport.subscribe(serverRef, sessionId, {
           onChunk: (c) => {
