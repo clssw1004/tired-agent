@@ -335,6 +335,39 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
   // Desktop detection: match CSS breakpoint. Not a hook, safe to use in render.
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
 
+  /** When the IME overlay closes on mobile, the system soft-keyboard
+   *  collapses asynchronously after the React state flip. On iOS Safari /
+   *  Android Chrome the page's visualViewport can be left with a non-zero
+   *  scroll offset or a stale height, which manifests as a blank band
+   *  below the on-screen keyboard once the keyboard remounts. We listen
+   *  for visualViewport changes (the only reliable signal that the
+   *  soft-keyboard has fully retracted) and force a layout reset +
+   *  ResizeObserver tick on the terminal. */
+  useEffect(() => {
+    if (isDesktop || typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let lastHeight = vv.height;
+    const onResize = () => {
+      // Only react when the viewport is GROWING — that's the moment the
+      // soft-keyboard is retracting. A shrink = keyboard opening; the IME
+      // overlay covers everything so no reset is needed.
+      if (vv.height > lastHeight) {
+        // Reset scroll position that some browsers leave behind after the
+        // system keyboard auto-scrolls the focused textarea into view.
+        try { window.scrollTo(0, 0); } catch { /* ignore */ }
+        if (document.documentElement) document.documentElement.scrollTop = 0;
+        if (document.body) document.body.scrollTop = 0;
+        // Nudge ResizeObserver-driven consumers (xterm fit) to re-measure
+        // now that the visualViewport matches the layout viewport again.
+        window.dispatchEvent(new Event('resize'));
+      }
+      lastHeight = vv.height;
+    };
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, [isDesktop]);
+
   const handleTap = useCallback((def: KeyDef) => {
     if (disabled) return;
     switch (def.kind) {
@@ -406,7 +439,29 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
       {/* IME overlay is portaled to document.body so position:fixed is
           unaffected by .pty-keyboard's backdrop-filter (Safari bug). */}
       {imeOpen && createPortal(
-        <ImeInput onSend={handleImeSend} onClose={() => setImeOpen(false)} />,
+        <ImeInput onSend={handleImeSend} onClose={() => {
+          // Reset scroll state synchronously before React tears the portal
+          // down. iOS Safari and Android Chrome both leave a non-zero
+          // scrollTop on the focused textarea's scroll container after the
+          // soft-keyboard retracts; on the next paint that scroll survives
+          // the IME overlay's removal and manifests as a blank band below
+          // the on-screen keyboard. Setting scrollTop to 0 on every
+          // candidate container + firing a resize event nudges the
+          // ResizeObserver-driven xterm fit() to re-measure.
+          try { window.scrollTo(0, 0); } catch { /* ignore */ }
+          if (document.documentElement) document.documentElement.scrollTop = 0;
+          if (document.body) document.body.scrollTop = 0;
+          // Wait one frame so the soft-keyboard close animation starts,
+          // then re-fire the reset and a resize tick — some browsers only
+          // update visualViewport AFTER the focused element is blurred.
+          requestAnimationFrame(() => {
+            try { window.scrollTo(0, 0); } catch { /* ignore */ }
+            if (document.documentElement) document.documentElement.scrollTop = 0;
+            if (document.body) document.body.scrollTop = 0;
+            window.dispatchEvent(new Event('resize'));
+          });
+          setImeOpen(false);
+        }} />,
         document.body,
       )}
     </>
