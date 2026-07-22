@@ -69,19 +69,36 @@ async function run() {
         const args = process.argv
           .slice(2)
           .filter((a) => a !== '--daemon' && a !== '-D');
-        const { execSync } = await import('node:child_process');
-        const cmd =
-          process.platform === 'win32'
-            ? `start /B "" "${process.execPath}" "${process.argv[1]}" ${args.join(' ')}`
-            : `nohup "${process.execPath}" "${process.argv[1]}" ${args.join(' ')} >/dev/null 2>&1 &`;
-        try {
-          execSync(cmd, { stdio: 'ignore' });
-          console.log(`Agent started in background (PID written to ${join(opts.dataDir, 'agent.pid')}).`);
-        } catch (err) {
-          console.error('Failed to start daemon:', (err as Error).message);
+        const script = process.argv[1];
+        if (!script) {
+          console.error('Cannot determine script path');
           process.exit(1);
         }
-        process.exit(0);
+        const { spawn } = await import('node:child_process');
+        const child = spawn(process.execPath, [script, ...args], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        child.unref();
+        // Give the child a moment to bind (exit immediately if it dies early).
+        const timer = setTimeout(() => {
+          console.log(`Agent started in background (PID ${child.pid ?? 'unknown'}, PID written to ${join(opts.dataDir, 'agent.pid')}).`);
+          process.exit(0);
+        }, 500);
+        child.on('exit', (code, sig) => {
+          clearTimeout(timer);
+          console.error(`Daemon exited immediately (code=${code}, signal=${sig}).`);
+          process.exit(1);
+        });
+        child.on('error', (err: Error) => {
+          clearTimeout(timer);
+          console.error('Failed to start daemon:', err.message);
+          process.exit(1);
+        });
+        // IMPORTANT: do NOT fall through to main(cfg) below — the watchdog
+        // timer or child events will call process.exit when appropriate.
+        return;
       }
 
       const registerString = opts.register || null;
@@ -188,20 +205,23 @@ async function run() {
         await new Promise((r) => setTimeout(r, 1500));
       }
 
-      // Re-launch with `cmd /c start /B` on Windows (detached), or
-      // `nohup` on Unix.  Re-use this same script + args + `start`.
-      const args = process.argv
+      // Re-launch with a detached child (spawn + unref), so the new process
+      // is not attached to the current console group and survives terminal close.
+      const childArgs = process.argv
         .slice(2)
-        .filter((a) => a !== 'restart')
-        .join(' ');
-      const { execSync } = await import('node:child_process');
-      const nodeBin = process.execPath;
+        .filter((a) => a !== 'restart');
       const script = process.argv[1];
-      const launchCmd =
-        process.platform === 'win32'
-          ? `start /B "" "${nodeBin}" "${script}" ${args} start`
-          : `nohup "${nodeBin}" "${script}" ${args} start >/dev/null 2>&1 &`;
-      execSync(launchCmd, { stdio: 'ignore' });
+      if (!script) {
+        console.error('Cannot determine script path');
+        process.exit(1);
+      }
+      const { spawn } = await import('node:child_process');
+      const child = spawn(process.execPath, [script, ...childArgs, 'start'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.unref();
       console.log('Agent restarted.');
       process.exit(0);
     });

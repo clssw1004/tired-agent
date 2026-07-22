@@ -1,6 +1,6 @@
 {
   "name": "@tired-agent/web",
-  "version": "0.1.12",
+  "version": "0.1.14",
   "private": true,
   "description": "tired-agent web SPA — runs independently of the server",
   "type": "module",
