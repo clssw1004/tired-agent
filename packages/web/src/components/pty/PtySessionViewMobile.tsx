@@ -17,6 +17,7 @@
  * will be added here — keeping that work isolated from the desktop shell.
  */
 
+import { useState } from 'react';
 import type { PtySessionViewSharedProps } from './shared';
 import { formatBytes } from './shared';
 import { TerminalView } from '../render-views';
@@ -43,6 +44,11 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
   const disabled = sessionStatus === 'exited';
 
+  /** Mobile-only: toggle to hide the header and reclaim ~36px for the
+   *  terminal. The toggle button is rendered as a sibling of the header
+   *  with position: fixed so it stays reachable when the header is hidden. */
+  const [headerHidden, setHeaderHidden] = useState(false);
+
   const STATUS_LABEL: Record<typeof status, string> = {
     typing: 'typing…',
     live: 'live',
@@ -53,7 +59,7 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
   return (
     <>
-      <header className="chat-header">
+      <header className={'chat-header' + (headerHidden ? ' is-hidden' : '')}>
         {onBack && (
           <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
         )}
@@ -68,6 +74,16 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
         </span>
         <span className={'chat-status-dot dot-' + sessionStatus} aria-hidden />
       </header>
+      <button
+        type="button"
+        className="chat-fullscreen-toggle"
+        onClick={() => setHeaderHidden((v) => !v)}
+        aria-label={headerHidden ? 'Show header' : 'Hide header'}
+        aria-pressed={headerHidden}
+        title={headerHidden ? '显示菜单栏' : '隐藏菜单栏'}
+      >
+        {headerHidden ? '⌄' : '⌃'}
+      </button>
 
       <div
         className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}

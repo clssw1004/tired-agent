@@ -1451,6 +1451,29 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .chat-avatar       { display: none; }
   .chat-title-host   { display: none; }
   .chat-status       { display: none; }
+  /* Fullscreen toggle — fixed top-right so it's reachable both when the
+     header is visible (overlaid on header) and when hidden (alone). */
+  .chat-fullscreen-toggle {
+    position: fixed;
+    top: 4px;
+    right: 8px;
+    z-index: 100;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .chat-fullscreen-toggle:hover { color: var(--text); }
+  .chat-header.is-hidden { display: none; }
 }
 
 .chat-status-merged {
