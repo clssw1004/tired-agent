@@ -205,8 +205,8 @@ The Vite dev server proxies `/v1/*` to the manager at `127.0.0.1:8443`.
 
 ## Documentation
 
-- [Design document (zh)](docs/superpowers/specs/2026-07-15-tired-agent-design.md)
-- [Engineering optimizations](docs/superpowers/specs/2026-07-18-engineering-optimizations.md)
+- [Architecture (zh)](docs/architecture/architecture.md)
+- [Engineering: deploy / CLI / auto-register (zh)](docs/architecture/engineering.md)
 
 ## License
 

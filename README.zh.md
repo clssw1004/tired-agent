@@ -189,8 +189,8 @@ Vite 开发服务器将 `/v1/*` 代理到 Manager 的 `127.0.0.1:8443`。
 
 ## 文档
 
-- [设计文档](docs/superpowers/specs/2026-07-15-tired-agent-design.md)
-- [工程优化](docs/superpowers/specs/2026-07-18-engineering-optimizations.md)
+- [系统架构](docs/architecture/architecture.md)
+- [工程化：部署 / CLI / 自注册](docs/architecture/engineering.md)
 
 ## License
 
