@@ -13,13 +13,16 @@
  *                       keyboard and letter input are always reachable)
  *   Expanded  (~280px): full QWERTY layout (punctuation stripped to keep
  *                       buttons wide on 360 px phones — `/` retained for
- *                       shell command lookup, no other symbols):
- *                          Esc / Brk / ▾
+ *                       shell command lookup, no other symbols). Arrows
+ *                       share the bottom row with Ctrl + Space (Space
+ *                       gives up width so the cluster fits without
+ *                       claiming its own row):
+ *                          Esc / Brk / 🌐 / ▾
  *                       1 2 … 0 ⌫
  *                       Tab Q W … P
  *                       Caps A … L Enter
- *                       ⇧  Z … M / ← ↑ ↓ →
- *                       🌐 Ctrl Space
+ *                       ⇧  Z … M /
+ *                       Ctrl Space ← ↑ ↓ →
  *                       Toggling Shift then tapping a digit still emits
  *                       the shifted variant (`! @ # $ % ^ & * ( )`) —
  *                       resolveBytes handles it; the variants just aren't
@@ -91,12 +94,14 @@ function digitDef(ch: string): KeyDef {
 
 // ─── Row layouts (no punctuation — / retained for shell commands) ───
 
-/** Row 0 — utility: Esc / Brk / collapse toggle. Direction keys moved to
- *  the right side of Row 4 (BOTTOM_ROW) so they sit next to the keys the
- *  user presses with their right thumb. */
+/** Row 0 — utility: Esc / Brk / IME / collapse. The IME 🌐 sits next to ▾
+ *  so the system keyboard is summonable from the same row the user uses
+ *  to collapse the keyboard. Arrows are NOT here — they live in their
+ *  own row at the very bottom. */
 const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
   { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
+  { id: 'ime', label: '🌐', base: '', kind: 'ui' },
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
 
@@ -112,32 +117,38 @@ const TOP_ROW: KeyDef[] = [
   ...'qwertyuiop'.split('').map(letterDef),
 ];
 
-/** Row 3 — QWERTY home: Caps A … L Enter. ; ' dropped. */
+/** Row 3 — QWERTY home: Caps A … L Enter. ; ' dropped. Enter takes two
+ *  flex units — symmetric with the `/` key on the bottom row, mirrors
+ *  a physical keyboard where Enter is a wide key under ;'. */
 const HOME_ROW: KeyDef[] = [
   { id: 'caps', label: 'Caps', base: '', kind: 'modifier', width: 1.75 },
   ...'asdfghjkl'.split('').map(letterDef),
-  { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.25 },
+  { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.0 },
 ];
 
-/** Row 4 — QWERTY bottom: ⇧ Z … M / ← ↑ ↓ →. , . dropped; / retained because
- *  shells use it to trigger command lookup (Ctrl+R-style history search
- *  helpers, path completion, etc.). Direction keys live on the right end
- *  where the right thumb naturally falls, freeing Row 0 from cramped arrows. */
+/** Row 4 — QWERTY bottom: ⇧ Z … M /. , . dropped; / retained because shells
+ *  use it to trigger command lookup (Ctrl+R-style history search helpers,
+ *  path completion, etc.). / takes two flex units — matches the Enter key
+ *  above and mirrors the physical keyboard's wide ⇧↦ position. Only ONE
+ *  shift on the left — phones are too narrow for a mirrored shift pair. */
 const BOTTOM_ROW: KeyDef[] = [
   { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
-  { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol' },
+  { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol', width: 2.0 },
+];
+
+/** Row 5 — bottom row: Ctrl + Space + ← ↑ ↓ →. Space gives up width
+ *  so the navigation cluster can sit on the same line without claiming
+ *  its own row (which would push the keyboard one full key-height
+ *  taller). IME 🌐 moved up to row 0 next to ▾, freeing this row's
+ *  horizontal budget. */
+const SPACE_ROW: KeyDef[] = [
+  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.5 },
+  { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 4.0 },
   { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
   { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
   { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
   { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
-];
-
-/** Row 5 — space row: 🌐 Ctrl Space. */
-const SPACE_ROW: KeyDef[] = [
-  { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.2 },
-  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.5 },
-  { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 7.3 },
 ];
 
 /** Collapsed-mode row — single-row control strip shown when 🔤 is tapped.
