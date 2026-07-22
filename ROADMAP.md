@@ -67,3 +67,40 @@
   - Manager 后端：`storage.ts`（新表 + 迁移）、`config.ts`、`index.ts`、`auth.ts`、`routes/auth.ts`、`routes/tokens.ts`（新建）、`routes/proxy.ts`、`app.ts`
   - Protocol 共享层：`types.ts`、`Transport.ts`、`HttpSseTransport.ts`
   - Web 前端：`AuthContext.tsx`、`TokenListPage.tsx`（新建）、`App.tsx`、`styles.css`
+- **关键决策**：
+  - **多 token 模型**：`manager_tokens`（token 元数据：`id, name, scopes, createdAt, expiresAt?`）+ `manager_token_agents`（多对多：token 可见的 agent 列表）。Admin token 拥有所有 scopes；普通 token 创建后默认无 agent，需显式授权。
+  - **长效登录（"记住我"+15 天 + 自动续期）**：见下方子条目。
+
+#### 子条目 A：长效登录 —— "记住我" + 15 天 TTL + 自动续期
+
+- **简要说明**：登录表单增加"记住我"勾选框（可选项，**默认不勾选**）。
+  - **勾选时**：session token 持久化到 `localStorage`，TTL = 15 天，启动后客户端自动续期避免被动过期；管理面板可由 ManagerConfig 改 TTL 默认值。
+  - **不勾选时**：session token 写入 `sessionStorage`（tab 关闭即失效），TTL 保留现有 24h，行为完全不变。
+  - 升级兼容：未改动的旧 session 走原 24h 路径（无需迁移），新登录按新规则。
+- **关键决策**：
+  - **服务端 storage**：`createSession(ttlMs: number)` 接受任意 TTL；旧调用点显式传 `SESSION_TTL_MS` (24h)，新调用按 `remember` 传 15 天 * 86400 * 1000。`manager_sessions` 表结构不变（`token, createdAt, expiresAt` 全在）。
+  - **登录请求体**：`POST /v1/manager/auth/login` 接受 `{token, persist?: boolean}`，default false；返回 `{sessionToken, expiresAt, persist}`。`persist` 回传方便前端知道该走哪种 storage。
+  - **自动续期接口**：新增 `POST /v1/manager/auth/refresh`（**需要现有 session token 鉴权**，401 不允许匿名刷新）。SQLite 事务里 "DELETE 旧 token + INSERT 新 token" 原子完成，避免并发 refresh 把同一个旧 token 续两次（一个 401、一个成功）；返回新的 `{sessionToken: <新>, expiresAt: <now + 15d>}`。
+  - **客户端续期触发**（按优先级）：
+    1. **被动**：任意 2xx 响应后，对比 "返回的 session 剩余有效期 < 7 天" 时静默触发 refresh（一次)。
+    2. **主动**：mount 后起 timer 每 1h 检查一次 expiresAt；
+    3. **被动**：401 收到时立即尝试一次 silent refresh；refresh 成功则重放原请求；refresh 失败 → 注销回登录页。
+    4. **visibilitychange**：页面从 hidden 变 visible 时补一次检查（弥补 tab 长时间 sleep 后 timer 被节流的问题）。
+  - **timer 清理**：timer / abort controller 必须在 unmount 时 clear；不允许 `setInterval` 在 `useEffect` 外裸跑。
+  - **前端 storage 双路径**：
+    - `localStorage`：key 仍 `tired-agent:manager-session-token`，勾选且 persist=true 时用；
+    - `sessionStorage`：key 改为 `tired-agent:manager-session-token-session`（或独立前缀），勾选 false 时用；
+    - 切换 baseUrl 时两种 key 都清。
+  - **管理器配置**：新增 `ManagerConfig.sessionTtlMs`（持久模式 TTL，默认 `15 * 86400 * 1000`）、`sessionRefreshWindowMs`（"小于这个值就刷"，默认 `7 * 86400 * 1000`）、`sessionNonPersistTtlMs`（不持久模式 TTL，默认 `24 * 3600 * 1000`）。
+  - **不在范围**：不做跨设备同步、多设备并行登录提示、强制踢人（这些属于多 token / session 列表功能，本子条目仅做"记住我"路径）。
+- **实施任务**：
+  - P1 Manager `storage.ts`：`createSession` 接受 `ttlMs`，旧 24h 调用点显式传原 TTL 常量。
+  - P2 Manager `routes/auth.ts`：login schema 加 `persist` 字段；新 `POST /v1/manager/auth/refresh` 路由 + handler，事务内 delete+insert。
+  - P3 Protocol `Transport.ts` / `HttpSseTransport.ts`：新增 `refreshSession(ref, currentToken)` 方法（用现有 token POST refresh，返回新 `{sessionToken, expiresAt}`）。
+  - P4 Web `AuthContext.tsx`：存储路径按 `persist` 切换（`sessionStorage` vs `localStorage`）；`sessionToken` state 同时持有 `expiresAt`；新增 `refreshSession()` 内部方法；`connectAndLogin(url, token, remember)` 签名扩 `remember`。
+  - P5 Web `LoginPage.tsx`：UI 增加"记住我" checkbox（默认 false），提交时把值传到 `connectAndLogin`；勾选后 placeholder hint 提示 "可保持 15 天"。
+  - P6 Web `AuthContext.tsx` + `App.tsx`：mount effect 起 refresh timer（1h）+ visibilitychange listener；任意 transport 调用 wrapper（fetch 拦截层或显式 refetch）做"剩余有效期 < 7d → 静默 refresh"；refresh 流程加防抖与并发合并（同一 token 在刷新中时复用进行中的 Promise）。
+  - P7 测试：manager 测试覆盖 `createSession(ttlMs)`、refresh 并发安全（同 token 第二次 401）；web 类型检查 + 手动验证两个 storage 路径 + 401 后 silent refresh + 路径回退登录。
+- **可推迟到第二轮**：
+  - "记住我" 勾选后的 UI 反馈（剩余天数 / "续期中" 状态条）—— P6 完成后做。
+  - "N 天后过期" 系统通知 —— 单独的服务端 / 客户端通知通道，跨多 token 管理。
