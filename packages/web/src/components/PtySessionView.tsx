@@ -4,24 +4,30 @@
  * This is the **process** (PTY) mode component. Persistent/chat mode uses
  * ClaudeChatView instead.
  *
- * Layout (top to bottom):
- *   1. Header           — title + status dot.
- *   2. Status strip     — live / typing / connecting / error / offline indicator.
- *   3. RenderArea       — TerminalView (xterm.js) for every CLI session.
- *   4. PtyInterventionBar  — appears above the input when the terminal is waiting
- *                            on a [y/N] prompt (Claude's permission dialogs, etc.).
- *   5. PtyInputBar         — mobile soft-keyboard passthrough. Each keystroke is
- *                            shipped verbatim to the PTY; Enter is just `\r`,
- *                            same as any other character.
+ * Architecture (2026-07-22 split):
+ *   PtySessionView.tsx          — host: state, refs, effects, callbacks.
+ *   pty/PtySessionViewDesktop   — desktop header (with ⌨ 控制条 toggle),
+ *                                 PtyInputBar (system keyboard) +
+ *                                 optional SpecialKeysBar.
+ *   pty/PtySessionViewMobile    — mobile header (no toggle), PtyMobileKeyboard.
+ *   pty/useDeviceType           — viewport classifier with resize listener.
+ *   pty/shared                  — shared types + constants + utilities.
+ *
+ * Why split:
+ *   Mobile and desktop layouts diverge fast (mobile keyboard, no toggle,
+ *   compact header, etc.). Keeping them in one file led to scattered
+ *   `isDesktop` checks and growing CSS media queries. Each variant now
+ *   owns its own JSX so future mobile-only polish does not leak into the
+ *   desktop path.
  *
  * Keyboard model: xterm.js owns the full TUI surface. PtyInputBar exists
- * ONLY to summon the mobile soft keyboard (xterm's canvas does not). On
- * desktop users click the terminal; on mobile they tap the input field.
- * Both paths converge on the same `writeBytes(data)` that ships bytes to
- * the PTY.
+ * ONLY to summon the desktop system keyboard (xterm's canvas does not).
+ * On mobile, PtyMobileKeyboard is a custom on-screen QWERTY that ships
+ * bytes verbatim to the PTY — same downstream path as the desktop one.
  *
- * History replay: on mount, fetchOutput(0) replays all bytes into xterm so
- * the user lands on a fully-rendered screen before live SSE chunks arrive.
+ * History replay: on mount, fetchOutput(0, …, tail) replays the last
+ * 64 KB into xterm so the user lands on a fully-rendered screen before
+ * live SSE chunks arrive. The full history is one banner-click away.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,17 +36,22 @@ import { createHttpSseTransport } from '@tired-agent/protocol';
 import type { StructuredContent } from '@tired-agent/protocol';
 import { defaultRegistry, initRenderers, GenericPtyRenderer } from '../renderer';
 import type { AgentRenderer } from '../renderer';
-import { TerminalView, type TerminalHandle } from './render-views';
-import { ChatTimeline } from './ChatTimeline';
-import { PtyInterventionBar } from './PtyInterventionBar';
-import { PtyInputBar } from './PtyInputBar';
-import { PtyMobileKeyboard } from './PtyMobileKeyboard';
+import type { TerminalHandle } from './render-views';
 import {
-  SpecialKeysBar,
-  type ModifierKey,
-  type ModifierMode,
-  type ModifierState,
-} from './SpecialKeysBar';
+  TYPING_TIMEOUT_MS,
+  TICK_INTERVAL_MS,
+  RESIZE_DEBOUNCE_MS,
+  OUTPUT_FLUSH_TIMEOUT_MS,
+  PTY_OUTPUT_TAIL_BYTES,
+  TAIL_BANNER_DISMISS_MS,
+  INITIAL_MODIFIER_STATE,
+  base64ToBytes,
+  type PtySessionViewSharedProps,
+  type OutputTailState,
+} from './pty/shared';
+import { useDeviceType } from './pty/useDeviceType';
+import { PtySessionViewDesktop } from './pty/PtySessionViewDesktop';
+import { PtySessionViewMobile } from './pty/PtySessionViewMobile';
 
 interface Props {
   serverRef: ServerRef;
@@ -51,48 +62,13 @@ interface Props {
   sessionLabel: string;
   sessionCmd: string;
   sessionArgs: string[];
-  /** Rendering mode. 'pty' (default) → xterm terminal; 'persistent' → chat timeline. */
   /** Session lifecycle mode. 'process' → follows process; 'persistent' → user-managed. */
   sessionMode?: SessionMode;
   onBack?: () => void;
 }
 
-const TYPING_TIMEOUT_MS = 500;
-const TICK_INTERVAL_MS = 250;
 const DECODER = new TextDecoder('utf-8', { fatal: false });
 const ENCODER = new TextEncoder();
-
-/** Debounce window for pushing PTY cols/rows back to the backend. ResizeObserver
- *  fires many times during a single window drag; we coalesce them into one
- *  resize request every {@link RESIZE_DEBOUNCE_MS}. 200ms is short enough that
- *  the user never sees mis-aligned output for long, but long enough that a
- *  continuous drag produces ≤ a handful of requests. */
-const RESIZE_DEBOUNCE_MS = 200;
-
-/** Safety valve for the RAF output batching. RAF can theoretically be starved
- *  (background tab, slow frame), which would silently delay PTY output. If
- *  the pending buffer hasn't flushed in this many ms we flush it anyway. */
-const OUTPUT_FLUSH_TIMEOUT_MS = 50;
-
-/** Fast-load only the last N bytes of the session log on first open. A
- *  50MB Claude log would otherwise cost ~10s of base64 round-trip on a
- *  phone network; 64KB covers ~3-4 terminal screens which is enough to
- *  see the latest prompt + recent tool output. The user can then opt to
- *  load the full history with the banner button. */
-const PTY_OUTPUT_TAIL_BYTES = 64 * 1024;
-
-/** Pretty-print a byte count for the truncation banner. */
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** Modifier keys start inactive. Toggle buttons in SpecialKeysBar flip
- *  these to 'oneShot' (short press, consumed by next non-modifier key) or
- *  'sticky' (long press, persists until tapped again). See
- *  docs/superpowers/specs/2026-07-20-pty-modifier-keys-design.md. */
-const INITIAL_MODIFIER_STATE: ModifierState = { ctrl: 'off', shift: 'off' };
 
 /** TextDecoder.decode wrapper — newer TS lib types prefer BufferSource overloads. */
 function decodeText(input: Uint8Array): string {
@@ -112,6 +88,7 @@ export function PtySessionView({
   sessionMode,
   onBack,
 }: Props) {
+  const device = useDeviceType();
   const [connected, setConnected] = useState(false);
   const [transportError, setTransportError] = useState<string | null>(null);
   const [termReady, setTermReady] = useState(false);
@@ -122,52 +99,32 @@ export function PtySessionView({
   /** Truncation state for the fast-load tail. null = unknown (still loading
    *  or full read). When `truncated` is true we render a banner offering to
    *  pull the rest of the history on demand. */
-  const [outputTail, setOutputTail] = useState<
-    { truncated: boolean; totalBytes: number; loadedBytes: number } | null
-  >(null);
+  const [outputTail, setOutputTail] = useState<OutputTailState | null>(null);
   /** When the user clicks ✕ on the truncation banner, dismiss it so it
    *  doesn't take up space. The session stays in tail mode; the banner
    *  won't show again unless the session re-mounts. */
   const [tailBannerDismissed, setTailBannerDismissed] = useState(false);
-
-  // Auto-dismiss the truncation banner after 3s so it doesn't permanently
-  // occupy screen real estate. The user can always tap ✕ to dismiss sooner,
-  // or tap "加载完整历史" to load the full log. Timer resets on re-mount.
-  useEffect(() => {
-    if (!outputTail?.truncated || tailBannerDismissed) return;
-    const t = window.setTimeout(() => setTailBannerDismissed(true), 3000);
-    return () => window.clearTimeout(t);
-  }, [outputTail?.truncated, tailBannerDismissed]);
 
   // Structured mode state
   const [mode, setMode] = useState<SessionMode>(sessionMode ?? 'process');
   const [structuredContents, setStructuredContents] = useState<StructuredContent[]>([]);
   const [streaming, setStreaming] = useState(false);
 
-  /** Desktop-only: when true, force PtyInputBar + SpecialKeysBar to render
-   *  even though the CSS hides them at ≥768px. Toggled via a button in the
-   *  header so a desktop user can summon Ctrl+C / Esc without clicking the
-   *  xterm canvas. Reset on every mount (per-session). */
-  const [showControls, setShowControls] = useState(false);
-  /** Desktop detection: matches CSS breakpoint. Used to conditionally render
-   *  PtyInputBar (desktop) vs PtyMobileKeyboard (mobile). */
-  const [isDesktop] = useState(() => window.innerWidth >= 768);
-
   // ── Modifier key state (PTY mode). Lifted to this host so both
   //    SpecialKeysBar (button bar) and PtyInputBar (system keyboard via
   //    <input>) see the same toggle state.
-  const [modifiers, setModifiers] = useState<ModifierState>(INITIAL_MODIFIER_STATE);
+  const [modifiers, setModifiers] = useState(INITIAL_MODIFIER_STATE);
 
   /** Set the modifier explicitly to {@link mode}. Used by SpecialKeysBar
    *  after the user taps a modifier button (short or long press). */
-  const setModifier = useCallback((key: ModifierKey, mode: ModifierMode) => {
+  const setModifier = useCallback((key: 'ctrl' | 'shift', mode: 'off' | 'oneShot' | 'sticky') => {
     setModifiers((prev) => (prev[key] === mode ? prev : { ...prev, [key]: mode }));
   }, []);
 
   /** Drop a modifier from 'oneShot' back to 'off'. Called by PtyInputBar
    *  after the modifier has been applied to a real keystroke. No-op for
    *  'sticky' (must be cleared explicitly by tapping the button again). */
-  const consumeModifier = useCallback((key: ModifierKey) => {
+  const consumeModifier = useCallback((key: 'ctrl' | 'shift') => {
     setModifiers((prev) => {
       if (prev[key] !== 'oneShot') return prev;
       return { ...prev, [key]: 'off' };
@@ -238,6 +195,16 @@ export function PtySessionView({
       }
     };
   }, []);
+
+  // Auto-dismiss the truncation banner after TAIL_BANNER_DISMISS_MS so it
+  // doesn't permanently occupy screen real estate. The user can always tap
+  // ✕ to dismiss sooner, or tap "加载完整历史" to load the full log. Timer
+  // resets on re-mount.
+  useEffect(() => {
+    if (!outputTail?.truncated || tailBannerDismissed) return;
+    const t = window.setTimeout(() => setTailBannerDismissed(true), TAIL_BANNER_DISMISS_MS);
+    return () => window.clearTimeout(t);
+  }, [outputTail?.truncated, tailBannerDismissed]);
 
   // ── PTY writer: shared by xterm.onUserInput, PtyInputBar.onChange, and
   //    PtyInterventionBar.onResponse. Everything funnels through one path so
@@ -536,203 +503,25 @@ export function PtySessionView({
   // ── Status derivation ──────────────────────────────────────────────────
   const typing = lastChunkAtRef.current > 0
     && Date.now() - lastChunkAtRef.current < TYPING_TIMEOUT_MS;
-  const status: 'typing' | 'live' | 'connecting' | 'error' | 'offline' = transportError
-    ? 'error'
-    : !connected
-    ? 'connecting'
-    : typing
-    ? 'typing'
-    : sessionStatus === 'exited'
-    ? 'offline'
-    : 'live';
+
+  const sharedProps: PtySessionViewSharedProps = {
+    serverRef, agentId, sessionId,
+    sessionLabel, sessionCmd, sessionArgs, sessionStatus, sessionMode,
+    onBack,
+    connected, transportError, termReady, typing, atBottom, busy, outputTail,
+    tailBannerDismissed, mode, structuredContents, streaming, modifiers,
+    selection, copyFlash, termRef,
+    writeBytes, handleTermResize, copySelection, loadFullHistory,
+    dismissTailBanner: () => setTailBannerDismissed(true),
+    setModifier, consumeModifier,
+    setAtBottom,
+  };
 
   return (
     <div className={'chat-panel' + (busy ? ' is-busy' : '')}>
-      <header className="chat-header">
-        {onBack && (
-          <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
-        )}
-        <span className="chat-avatar chat-avatar-pc" aria-hidden>PC</span>
-        <div className="chat-titles">
-          <span className="chat-title-name">{sessionLabel || '…'}</span>
-          <span className="chat-title-host">{serverRef.name} · {serverRef.baseUrl}</span>
-        </div>
-        {mode === 'process' && (
-          <button
-            type="button"
-            className={'chat-toggle-controls' + (showControls ? ' is-on' : '')}
-            onClick={() => setShowControls((v) => !v)}
-            aria-pressed={showControls}
-            aria-label="Toggle terminal controls"
-            title={showControls ? '隐藏控制条' : '显示控制条（Esc / Ctrl+C / 方向键…）'}
-          >
-            {showControls ? '⌨ 隐藏控制条' : '⌨ 控制条'}
-          </button>
-        )}
-        <span className={'chat-status-dot dot-' + sessionStatus} aria-label={'session ' + sessionStatus} />
-      </header>
-
-      <div className={'chat-status chat-status-' + status} role="status">
-        <span className="chat-status-bar" />
-        <span className="chat-status-text">
-          {status === 'typing' && 'typing…'}
-          {status === 'live' && 'live'}
-          {status === 'connecting' && 'connecting…'}
-          {status === 'error' && 'disconnected: ' + transportError}
-          {status === 'offline' && 'session has exited'}
-        </span>
-      </div>
-
-      <div
-        className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
-        onClick={() => mode !== 'persistent' && termRef.current?.focus()}
-      >
-        {mode === 'persistent' ? (
-          <ChatTimeline
-            contents={structuredContents}
-            streaming={streaming}
-          />
-        ) : (
-          <>
-            <TerminalView
-              ref={termRef}
-              onReady={() => setTermReady(true)}
-              onUserInput={(data) => void writeBytes(data)}
-              onSelectionChange={(text) => setSelection(text)}
-              onScroll={(ab) => setAtBottom(ab)}
-              onResize={handleTermResize}
-            />
-            {selection && (
-              <button
-                type="button"
-                className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
-                onClick={(e) => { e.stopPropagation(); void copySelection(); }}
-                aria-label="Copy selection"
-              >
-                <span aria-hidden>📋</span>
-                <span>{copyFlash ? '已复制' : '复制'}</span>
-              </button>
-            )}
-            {!atBottom && (
-              <button
-                type="button"
-                className="jump-to-bottom"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  termRef.current?.scrollToBottom();
-                  setAtBottom(true);
-                }}
-                aria-label="Jump to latest output"
-              >
-                ↓ 跳到最新
-              </button>
-            )}
-            </>
-          )}
-        </div>
-
-      {outputTail?.truncated && !tailBannerDismissed && (
-        <div className="output-truncated-banner" role="status">
-          <span>
-            已加载尾部 {formatBytes(outputTail.loadedBytes)} / 共 {formatBytes(outputTail.totalBytes)}
-          </span>
-          <button type="button" onClick={() => void loadFullHistory()}>
-            加载完整历史
-          </button>
-          <button
-            type="button"
-            className="banner-dismiss"
-            onClick={() => setTailBannerDismissed(true)}
-            aria-label="关闭"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      <PtyInterventionBar
-        key={mode === 'persistent' ? 'persistent' : termReady ? 'ready' : 'pending'}
-        terminal={mode === 'persistent' ? null : termReady ? termRef.current : null}
-        onResponse={(text) => void writeBytes(text)}
-      />
-
-      {mode === 'persistent' ? (
-        // ── Persistent (chat) mode: keep original input bar ────────
-        <>
-          <SpecialKeysBar
-            disabled={disabled}
-            structured={true}
-            modifiers={modifiers}
-            onSetModifier={setModifier}
-            onConsumeModifier={consumeModifier}
-            onKey={(bytes) => void writeBytes(bytes)}
-          />
-          <PtyInputBar
-            disabled={disabled}
-            sending={false}
-            sessionId={sessionId}
-            placeholder={
-              disabled
-                ? '会话已结束'
-                : busy
-                  ? 'Claude 处理中…'
-                  : '输入消息…'
-            }
-            onChange={(data) => void writeBytes(data)}
-            modifiers={modifiers}
-            onConsumeModifier={consumeModifier}
-          />
-        </>
-      ) : (
-        // ── PTY (process) mode: desktop gets PtyInputBar for physical
-        //    keyboard typing; mobile gets PtyMobileKeyboard (custom).
-        //    SpecialKeysBar only on desktop via ⌨ toggle (showControls).
-        <div className="pty-input-wrapper">
-          {showControls && (
-            <SpecialKeysBar
-              disabled={disabled}
-              structured={false}
-              modifiers={modifiers}
-              onSetModifier={setModifier}
-              onConsumeModifier={consumeModifier}
-              onKey={(bytes) => void writeBytes(bytes)}
-              forceVisible={true}
-            />
-          )}
-          {isDesktop ? (
-            <PtyInputBar
-              disabled={disabled}
-              sending={false}
-              sessionId={sessionId}
-              placeholder={
-                disabled
-                  ? '会话已结束'
-                  : busy
-                    ? 'Claude 处理中…'
-                    : '输入框 — 手机键盘直通'
-              }
-              onChange={(data) => void writeBytes(data)}
-              modifiers={modifiers}
-              onConsumeModifier={consumeModifier}
-            />
-          ) : (
-            <PtyMobileKeyboard
-              disabled={disabled}
-              modifiers={modifiers}
-              onSetModifier={setModifier}
-              onConsumeModifier={consumeModifier}
-              onKey={(bytes) => void writeBytes(bytes)}
-            />
-          )}
-        </div>
-      )}
+      {device === 'desktop'
+        ? <PtySessionViewDesktop {...sharedProps} />
+        : <PtySessionViewMobile {...sharedProps} />}
     </div>
   );
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const binary = globalThis.atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
 }
