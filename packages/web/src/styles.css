@@ -1457,24 +1457,31 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .app-nav.is-hidden { display: none; }
 }
 
-/* Fullscreen toggle button — lives in .app-nav next to Logout.
-   The ⛶ glyph (U+26F6, square four corners) is the universal fullscreen
-   indicator. Sized so it matches the nav's 40px link height. */
-.app-nav-fullscreen {
+/* Fullscreen toggle button — lives at the rightmost edge of the session
+   header (chat-header), sharing the same row as back/title/status. The
+   ⛶ glyph (U+26F6, square four corners) is the universal fullscreen
+   indicator. Sizing matches the mobile .chat-back (28×28, transparent). */
+.chat-fullscreen-toggle {
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
   font-size: 18px;
   line-height: 1;
-  padding: 0 12px;
-  height: 40px;
-  display: inline-flex;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  -webkit-tap-highlight-color: transparent;
+  border-radius: 0;
 }
-.app-nav-fullscreen[aria-pressed="true"] {
-  background: var(--bg-input);
-  color: var(--text);
-}
+.chat-fullscreen-toggle:hover { color: var(--text); }
+.chat-fullscreen-toggle[aria-pressed="true"] { color: var(--text); }
 
 .chat-status-merged {
   font-size: 12px;
