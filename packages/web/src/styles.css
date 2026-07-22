@@ -1473,7 +1473,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     justify-content: center;
   }
   .chat-fullscreen-toggle:hover { color: var(--text); }
-  .chat-header.is-hidden { display: none; }
+  /* Collapse the top nav (Agents / Onboarding) when the toggle button
+     is pressed — reclaims ~56px (padding 8+8 + link 40) for the terminal.
+     Desktop users don't see the toggle, so this rule is mobile-only. */
+  .app-nav.is-hidden { display: none; }
 }
 
 .chat-status-merged {

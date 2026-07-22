@@ -17,13 +17,13 @@
  * will be added here — keeping that work isolated from the desktop shell.
  */
 
-import { useState } from 'react';
 import type { PtySessionViewSharedProps } from './shared';
 import { formatBytes } from './shared';
 import { TerminalView } from '../render-views';
 import { ChatTimeline } from '../ChatTimeline';
 import { PtyInterventionBar } from '../PtyInterventionBar';
 import { PtyMobileKeyboard } from '../PtyMobileKeyboard';
+import { useNav } from '../../store/NavContext';
 
 export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
   const {
@@ -44,10 +44,10 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
   const disabled = sessionStatus === 'exited';
 
-  /** Mobile-only: toggle to hide the header and reclaim ~36px for the
-   *  terminal. The toggle button is rendered as a sibling of the header
-   *  with position: fixed so it stays reachable when the header is hidden. */
-  const [headerHidden, setHeaderHidden] = useState(false);
+  /** Mobile-only: toggle the top nav (Agents / Onboarding) to reclaim its
+   *  height (~56px) for the terminal. The actual `.app-nav` element lives
+   *  in App.tsx and reads the same context. */
+  const { navHidden, toggleNav } = useNav();
 
   const STATUS_LABEL: Record<typeof status, string> = {
     typing: 'typing…',
@@ -59,7 +59,7 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
   return (
     <>
-      <header className={'chat-header' + (headerHidden ? ' is-hidden' : '')}>
+      <header className="chat-header">
         {onBack && (
           <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
         )}
@@ -77,12 +77,12 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
       <button
         type="button"
         className="chat-fullscreen-toggle"
-        onClick={() => setHeaderHidden((v) => !v)}
-        aria-label={headerHidden ? 'Show header' : 'Hide header'}
-        aria-pressed={headerHidden}
-        title={headerHidden ? '显示菜单栏' : '隐藏菜单栏'}
+        onClick={toggleNav}
+        aria-label={navHidden ? 'Show top nav' : 'Hide top nav'}
+        aria-pressed={navHidden}
+        title={navHidden ? '显示顶部菜单' : '隐藏顶部菜单'}
       >
-        {headerHidden ? '⌄' : '⌃'}
+        {navHidden ? '⌄' : '⌃'}
       </button>
 
       <div
