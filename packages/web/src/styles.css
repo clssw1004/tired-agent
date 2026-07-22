@@ -1436,8 +1436,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 
 /* [mobile-only] Compact session header — no avatar, status merged into title row */
 @media (max-width: 767px) {
-  .chat-header       { padding: 8px 12px; gap: 8px; min-height: 44px; }
-  .chat-back         { width: 32px; height: 32px; font-size: 18px; }
+  .chat-header       { padding: 4px 12px; gap: 6px; }
+  .chat-back         { width: 28px; height: 28px; font-size: 16px; }
   .chat-avatar       { display: none; }
   .chat-title-host   { display: none; }
   .chat-status       { display: none; }
