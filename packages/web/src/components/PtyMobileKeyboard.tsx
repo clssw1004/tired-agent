@@ -7,9 +7,11 @@
  * mobile (PTY / process mode only).
  *
  * Two modes:
- *   Collapsed (~40px): ← ↑ ↓ → Esc Tab c d Brk Ctrl Shift 🔤
+ *   Collapsed (~40px): Esc  ⇧  Ctrl  Tab  ← ↑ ↓ →  ⏎  🌐
+ *                      (IME 🌐 stays here so the system keyboard is always
+ *                       reachable without expanding)
  *   Expanded  (~280px): full QWERTY layout mirroring a physical keyboard:
- *                          Esc / Brk / ← ↑ ↓ → / collapse
+ *                          Esc / Brk / ← ↑ ↓ → / ▾
  *                       ` 1 2 … 0 - = ⌫
  *                       Tab Q W … P [ ] \
  *                       Caps A … L ; ' Enter
@@ -158,18 +160,22 @@ const SPACE_ROW: KeyDef[] = [
   { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 7.3 },
 ];
 
-/** Collapsed-mode row — single-row control strip shown when 🔤 is tapped. */
+/** Collapsed-mode row — single-row control strip shown when 🔤 is tapped.
+ *  Order (left → right): Esc / Shift / Ctrl / Tab / ← ↑ ↓ → / Enter / 🌐.
+ *  IME 🌐 stays in the collapsed row so the system keyboard can be summoned
+ *  without first expanding to the full layout. ▾ / 🔤 swap lives in the
+ *  expanded util row (TOP_UTIL_ROW.collapse). */
 const COLLAPSED_KEYS: KeyDef[] = [
-  { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control', width: 1.2 },
-  { id: 'tab', label: 'Tab', base: '\t', shifted: '\x1b[Z', kind: 'control', width: 1.2 },
-  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control', width: 1.2 },
-  { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control', width: 1.0 },
-  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control', width: 1.0 },
-  { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control', width: 1.0 },
-  { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control', width: 1.0 },
-  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.2 },
-  { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 1.2 },
-  { id: 'expand', label: '🔤', base: '', kind: 'ui', width: 1.0 },
+  { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control', width: 1.0 },
+  { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 1.0 },
+  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.0 },
+  { id: 'tab', label: 'Tab', base: '\t', shifted: '\x1b[Z', kind: 'control', width: 1.0 },
+  { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control', width: 0.8 },
+  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control', width: 0.8 },
+  { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control', width: 0.8 },
+  { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control', width: 0.8 },
+  { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 1.2 },
+  { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.0 },
 ];
 
 // ─── Byte resolution ─────────────────────────────────────────────────
