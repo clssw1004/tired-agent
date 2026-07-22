@@ -60,16 +60,19 @@
 
 ### Token 管理
 
-- **简要说明**：Manager 支持多 token 管理。启动时若未配置 token 则自动生成；Web UI 新增 token 管理页面，支持创建、重置、删除 token，并可设置每个 token 可访问的 agent 列表（admin token 拥有全部权限）。
+- **简要说明**：Manager 支持多 token 管理。启动时若未配置 token 则自动生成；Web UI 新增 token 管理页面，支持创建、重置、删除 token。所有 token 与 admin 等价（拥有全部 agent 访问权限）；后续如需"按 token 限定 agent 可见范围"再单独立项。
 - **设计文档**：[.claude/plans/packages-manager-token-manager-token-to-zesty-waffle.md](./docs/not-impl/packages-manager-token-manager-token-to-zesty-waffle.md)
 - **状态**：📋 设计中
 - **预估改动范围**：
-  - Manager 后端：`storage.ts`（新表 + 迁移）、`config.ts`、`index.ts`、`auth.ts`、`routes/auth.ts`、`routes/tokens.ts`（新建）、`routes/proxy.ts`、`app.ts`
+  - Manager 后端：`storage.ts`（新表 `manager_tokens`）、`config.ts`、`index.ts`、`auth.ts`、`routes/auth.ts`、`routes/tokens.ts`（新建）、`app.ts`
   - Protocol 共享层：`types.ts`、`Transport.ts`、`HttpSseTransport.ts`
   - Web 前端：`AuthContext.tsx`、`TokenListPage.tsx`（新建）、`App.tsx`、`styles.css`
 - **关键决策**：
-  - **多 token 模型**：`manager_tokens`（token 元数据：`id, name, scopes, createdAt, expiresAt?`）+ `manager_token_agents`（多对多：token 可见的 agent 列表）。Admin token 拥有所有 scopes；普通 token 创建后默认无 agent，需显式授权。
+  - **多 token 模型**：新表 `manager_tokens` 存 token 元数据（`id, name, token, createdAt, expiresAt?, lastUsedAt?`）。任何有效 token（含普通 token）都拥有对全部 agent 的访问权限；admin token 单独硬编码不存表。"按 token 限定可见 agent 范围"显式推到下一轮，本轮不做 ACL。
   - **长效登录（"记住我"+15 天 + 自动续期）**：见下方子条目。
+- **不在范围**：
+  - 不做 token 级别的 agent 可见性 / scopes / ACL。
+  - 不做强制踢人、多设备并行登录提示（这些随"按 token 限定 agent 可见范围"一起推迟）。
 
 #### 子条目 A：长效登录 —— "记住我" + 15 天 TTL + 自动续期
 
