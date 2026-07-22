@@ -1437,7 +1437,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 /* [mobile-only] Compact session header — no avatar, status merged into title row */
 @media (max-width: 767px) {
   .chat-header       { padding: 4px 12px; gap: 6px; }
-  .chat-back         { width: 28px; height: 28px; font-size: 16px; }
+  /* Bump specificity to (0,2,0) so this wins over the @media (hover: none)
+     touch-target rule at line ~1468 which forces chat-back to 44×44. */
+  .chat-header .chat-back {
+    width: 28px; height: 28px;
+    min-width: 0; min-height: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 28px;
+    border-radius: 0;
+  }
   .chat-avatar       { display: none; }
   .chat-title-host   { display: none; }
   .chat-status       { display: none; }
