@@ -7,10 +7,12 @@
  * mobile (PTY / process mode only).
  *
  * Two modes:
- *   Collapsed (~40px): Esc  ⇧  Ctrl  Tab  ↑ ↓  ⏎  🔤  🌐
- *                      (← → dropped — available in expanded mode;
- *                       IME 🌐 + 🔤 expand both stay here so the system
- *                       keyboard and letter input are always reachable)
+ *   Collapsed (~40px): Esc  Tab  ↑ ↓  ⏎  ⌨  ▾
+ *                      (Shift/Ctrl + ← → dropped — available in expanded
+ *                       mode. ⌨ IME + ▾ expand both stay here so the
+ *                       system keyboard and letter input are always
+ *                       reachable. Enter takes width 2.0 for the most
+ *                       common collapsed-mode action.)
  *   Expanded  (~280px): full QWERTY layout (punctuation stripped to keep
  *                       buttons wide on 360 px phones — `/` retained for
  *                       shell command lookup, no other symbols). Arrows
@@ -21,12 +23,12 @@
  *                       (back-tab byte \x1b[Z) without toggling Shift.
  *                       Shift renders as the full word to disambiguate
  *                       from the ⇧Tab combo:
- *                          Esc / ⇧ Tab / Brk / 🌐 / ▾
+ *                          Esc / ⇧ Tab / Brk / /res / /clr / ⌨ / ▾
  *                       1 2 … 0 ⌫
  *                       Tab Q W … P
  *                       Caps A … L Enter
- *                       Shift Z … M /
- *                       Ctrl Space ← ↑ ↓ →
+ *                       Shift Z … M ↑ /   (↑ and / both width 2)
+ *                       Ctrl Space ← ↓ →
  *                       Toggling Shift then tapping a digit still emits
  *                       the shifted variant (`! @ # $ % ^ & * ( )`) —
  *                       resolveBytes handles it; the variants just aren't
@@ -105,15 +107,19 @@ function digitDef(ch: string): KeyDef {
  *  requiring the user to toggle Shift first. Used to cycle Claude's
  *  permission mode (auto ↔ plan ↔ manual) which listens for back-tab.
  *  Sits next to Esc because the two are often pressed together when
- *  dismissing a Claude permission prompt. Brk (\x1c) is the historical
- *  BREAK signal — mostly a no-op in modern programs but kept for the
- *  debugger / boot-loader edge cases. IME 🌐 + ▾ collapse share the
- *  right edge of the row. */
+ *  dismissing a Claude permission prompt. /res (/resume) and /clr (/clear)
+ *  are one-tap Claude slash commands (base ends in \n so they execute on
+ *  send). Labels are abbreviated to keep row 0 narrow.
+ *  Brk (\x1c) is the historical BREAK signal — mostly a no-op in modern
+ *  programs but kept for debugger / boot-loader edge cases. IME ⌨ +
+ *  ▾ collapse share the right edge of the row. */
 const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
-  { id: 'shift-tab', label: '⇧ Tab', base: '\x1b[Z', kind: 'control' },
-  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
-  { id: 'ime', label: '🌐', base: '', kind: 'ui' },
+  { id: 'shift-tab', label: 'Mode', base: '\x1b[Z', kind: 'control' },
+  // { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
+  { id: 'cmd-resume', label: '/res', base: '/resume\n', kind: 'control' },
+  { id: 'cmd-clear', label: '/clr', base: '/clear\n', kind: 'control' },
+  { id: 'ime', label: '⌨', base: '', kind: 'ui' },
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
 
@@ -138,52 +144,51 @@ const HOME_ROW: KeyDef[] = [
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.0 },
 ];
 
-/** Row 4 — QWERTY bottom: Shift Z … M /. , . dropped; / retained because
+/** Row 4 — QWERTY bottom: Shift Z … M ↑ /. , . dropped; / retained because
  *  shells use it to trigger command lookup (Ctrl+R-style history search
- *  helpers, path completion, etc.). / takes two flex units — matches the
- *  Enter key above and mirrors the physical keyboard's wide ⇧↦ position.
- *  Only ONE shift on the left — phones are too narrow for a mirrored
- *  shift pair. Shift is rendered as the full word ("Shift", not "⇧") to
- *  avoid confusion with the ⇧Tab combo key on row 0. */
+ *  helpers, path completion, etc.). / and ↑ both run at width 2.0 — same
+ *  size so they read as one tight cluster. Only ONE shift on the left —
+ *  phones are too narrow for a mirrored shift pair. Shift is rendered
+ *  as the full word ("Shift", not "⇧") to disambiguate from the ⇧Tab
+ *  combo key on row 0. */
 const BOTTOM_ROW: KeyDef[] = [
   { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
+  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control', width: 2.0 },
   { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol', width: 2.0 },
 ];
 
-/** Row 5 — bottom row: Ctrl + Space + ← ↑ ↓ →. Space gives up width
- *  so the navigation cluster can sit on the same line without claiming
- *  its own row (which would push the keyboard one full key-height
- *  taller). IME 🌐 moved up to row 0 next to ▾, freeing this row's
- *  horizontal budget. */
+/** Row 5 — bottom row: Ctrl + Space + ← ↓ →. ↑ moved up to row 4 so it
+ *  sits directly above ↓ — natural inverted-T alignment for the arrow
+ *  cluster. Space gives up width so the remaining cluster fits without
+ *  claiming its own row. IME ⌨ moved to row 0 next to ▾. */
 const SPACE_ROW: KeyDef[] = [
   { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.5 },
   { id: 'space', label: 'Space', base: ' ', kind: 'action', width: 4.0 },
   { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
-  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
   { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
   { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
 ];
 
 /** Collapsed-mode row — single-row control strip shown when 🔤 is tapped.
- *  Order (left → right): Esc / Shift / Ctrl / Tab / ↑ ↓ / Enter / 🔤 / 🌐.
- *  Horizontal arrows (← →) are dropped from the collapsed row — 360 px phones
- *  made the row cramped, and ↑ ↓ cover the common "scroll history / step
- *  line" use case. Full ← ↑ ↓ → is still available in the expanded
- *  util row (TOP_UTIL_ROW). IME 🌐 stays here so the system keyboard is
- *  always reachable without expanding. 🔤 stays too — otherwise the user
- *  is trapped in the collapsed view and must refresh to get back to
- *  letter input. ▾ collapse lives in the expanded util row. */
+ *  Order (left → right): Esc / Tab / ↑ ↓ / ⏎ / 🔤 / 🌐.
+ *  Shift + Ctrl modifiers are dropped from the collapsed row — the user
+ *  expands to the full layout when they need them. Horizontal arrows
+ *  (← →) are dropped too — ↑ ↓ cover the common "scroll history / step
+ *  line" use case, and full ← ↑ ↓ → is in the expanded SPACE_ROW.
+ *  Enter takes width 2.0 (bigger hit target for the most common action).
+ *  IME 🌐 stays so the system keyboard is always reachable without
+ *  expanding. 🔤 stays too — otherwise the user is trapped in the
+ *  collapsed view and must refresh. ▾ collapse lives in the expanded
+ *  util row. */
 const COLLAPSED_KEYS: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control', width: 1.0 },
-  { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 1.2 },
-  { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.0 },
   { id: 'tab', label: 'Tab', base: '\t', shifted: '\x1b[Z', kind: 'control', width: 1.0 },
   { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control', width: 0.9 },
   { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control', width: 0.9 },
-  { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 1.3 },
-  { id: 'expand', label: '🔤', base: '', kind: 'ui', width: 1.0 },
-  { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.0 },
+  { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.0 },
+  { id: 'ime', label: '⌨', base: '', kind: 'ui', width: 1.0 },
+  { id: 'expand', label: '▾', base: '', kind: 'ui', width: 1.0 },
 ];
 
 // ─── Byte resolution ─────────────────────────────────────────────────
@@ -233,8 +238,20 @@ function resolveBytes(key: KeyDef, mod: ModifierState, capsOn: boolean): string 
 function ImeInput({ onSend, onClose }: { onSend: (t: string) => void; onClose: () => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState('');
+  /** Defer pointer-event arming on the overlay. The tap that opens the IME
+   *  is still in flight — mobile Safari resolves the trailing pointerup
+   *  against whatever element sits under the finger at release time, and
+   *  that's now the ✕ button. Disabling pointer-events on the overlay for
+   *  ~200 ms lets the pointerup fall through to the document (no button
+   *  to hit) so the IME stays open. After that the overlay becomes fully
+   *  interactive. */
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    const t = window.setTimeout(() => setArmed(true), 220);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const send = () => {
     if (text) onSend(text);
@@ -243,7 +260,7 @@ function ImeInput({ onSend, onClose }: { onSend: (t: string) => void; onClose: (
   };
 
   return (
-    <div className="pty-ime-overlay">
+    <div className="pty-ime-overlay" style={{ pointerEvents: armed ? 'auto' : 'none' }}>
       <textarea
         ref={ref}
         className="pty-ime-textarea"
