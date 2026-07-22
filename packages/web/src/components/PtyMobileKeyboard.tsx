@@ -16,12 +16,16 @@
  *                       shell command lookup, no other symbols). Arrows
  *                       share the bottom row with Ctrl + Space (Space
  *                       gives up width so the cluster fits without
- *                       claiming its own row):
- *                          Esc / Brk / 🌐 / ▾
+ *                       claiming its own row). The util row carries a
+ *                       one-tap ⇧Tab combo key for cycling Claude mode
+ *                       (back-tab byte \x1b[Z) without toggling Shift.
+ *                       Shift renders as the full word to disambiguate
+ *                       from the ⇧Tab combo:
+ *                          Esc / Brk / ⇧ Tab / 🌐 / ▾
  *                       1 2 … 0 ⌫
  *                       Tab Q W … P
  *                       Caps A … L Enter
- *                       ⇧  Z … M /
+ *                       Shift Z … M /
  *                       Ctrl Space ← ↑ ↓ →
  *                       Toggling Shift then tapping a digit still emits
  *                       the shifted variant (`! @ # $ % ^ & * ( )`) —
@@ -38,8 +42,10 @@
  *     ModifierState). Tap toggles a sticky uppercase mode. Caps + Shift
  *     behaves like a physical keyboard (XOR — Caps on + Shift on = lowercase).
  *
- * IME mode: tapping 🌐 summons a floating input with the system keyboard for
- * Chinese/IME input. Type text → tap ⏎ → whole chunk sent to PTY → closes.
+ * IME mode: tapping 🌐 summons a floating multi-line textarea with the
+ * system keyboard for Chinese/IME input. Plain Enter inserts a newline;
+ * Shift+Enter / Ctrl+Enter / Cmd+Enter send the chunk to the PTY; the ⏎
+ * button always sends; ✕ closes without sending.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -94,13 +100,16 @@ function digitDef(ch: string): KeyDef {
 
 // ─── Row layouts (no punctuation — / retained for shell commands) ───
 
-/** Row 0 — utility: Esc / Brk / IME / collapse. The IME 🌐 sits next to ▾
- *  so the system keyboard is summonable from the same row the user uses
- *  to collapse the keyboard. Arrows are NOT here — they live in their
- *  own row at the very bottom. */
+/** Row 0 — utility: Esc / Brk / ⇧Tab / 🌐 / ▾. The ⇧Tab key is a one-tap
+ *  Shift+Tab combo — emits the back-tab byte \x1b[Z directly without
+ *  requiring the user to toggle Shift first. Used to cycle Claude's
+ *  permission mode (auto ↔ plan ↔ manual) which listens for back-tab.
+ *  IME 🌐 sits next to ▾ so the system keyboard is summonable from the
+ *  same row the user uses to collapse the keyboard. */
 const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
   { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
+  { id: 'shift-tab', label: '⇧ Tab', base: '\x1b[Z', kind: 'control' },
   { id: 'ime', label: '🌐', base: '', kind: 'ui' },
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
@@ -126,13 +135,15 @@ const HOME_ROW: KeyDef[] = [
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.0 },
 ];
 
-/** Row 4 — QWERTY bottom: ⇧ Z … M /. , . dropped; / retained because shells
- *  use it to trigger command lookup (Ctrl+R-style history search helpers,
- *  path completion, etc.). / takes two flex units — matches the Enter key
- *  above and mirrors the physical keyboard's wide ⇧↦ position. Only ONE
- *  shift on the left — phones are too narrow for a mirrored shift pair. */
+/** Row 4 — QWERTY bottom: Shift Z … M /. , . dropped; / retained because
+ *  shells use it to trigger command lookup (Ctrl+R-style history search
+ *  helpers, path completion, etc.). / takes two flex units — matches the
+ *  Enter key above and mirrors the physical keyboard's wide ⇧↦ position.
+ *  Only ONE shift on the left — phones are too narrow for a mirrored
+ *  shift pair. Shift is rendered as the full word ("Shift", not "⇧") to
+ *  avoid confusion with the ⇧Tab combo key on row 0. */
 const BOTTOM_ROW: KeyDef[] = [
-  { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
+  { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
   { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol', width: 2.0 },
 ];
@@ -162,7 +173,7 @@ const SPACE_ROW: KeyDef[] = [
  *  letter input. ▾ collapse lives in the expanded util row. */
 const COLLAPSED_KEYS: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control', width: 1.0 },
-  { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 1.0 },
+  { id: 'shift', label: 'Shift', base: '', kind: 'modifier', width: 1.2 },
   { id: 'ctrl', label: 'Ctrl', base: '', kind: 'modifier', width: 1.0 },
   { id: 'tab', label: 'Tab', base: '\t', shifted: '\x1b[Z', kind: 'control', width: 1.0 },
   { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control', width: 0.9 },
