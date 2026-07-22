@@ -7,9 +7,9 @@
  * mobile (PTY / process mode only).
  *
  * Two modes:
- *   Collapsed (~40px): Esc  ⇧  Ctrl  Tab  ← ↑ ↓ →  ⏎  🌐
- *                      (IME 🌐 stays here so the system keyboard is always
- *                       reachable without expanding)
+ *   Collapsed (~40px): Esc  ⇧  Ctrl  Tab  ← ↑ ↓ →  ⏎  🔤  🌐
+ *                      (IME 🌐 + 🔤 expand both stay here so the system
+ *                       keyboard and letter input are always reachable)
  *   Expanded  (~280px): full QWERTY layout mirroring a physical keyboard:
  *                          Esc / Brk / ← ↑ ↓ → / ▾
  *                       ` 1 2 … 0 - = ⌫
@@ -161,10 +161,12 @@ const SPACE_ROW: KeyDef[] = [
 ];
 
 /** Collapsed-mode row — single-row control strip shown when 🔤 is tapped.
- *  Order (left → right): Esc / Shift / Ctrl / Tab / ← ↑ ↓ → / Enter / 🌐.
+ *  Order (left → right): Esc / Shift / Ctrl / Tab / ← ↑ ↓ → / Enter / 🔤 / 🌐.
  *  IME 🌐 stays in the collapsed row so the system keyboard can be summoned
- *  without first expanding to the full layout. ▾ / 🔤 swap lives in the
- *  expanded util row (TOP_UTIL_ROW.collapse). */
+ *  without first expanding to the full layout. 🔤 stays too — otherwise the
+ *  user is trapped in the collapsed view and must refresh to get back to
+ *  letter input. ▾ collapse lives in the expanded util row
+ *  (TOP_UTIL_ROW.collapse). */
 const COLLAPSED_KEYS: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control', width: 1.0 },
   { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 1.0 },
@@ -175,6 +177,7 @@ const COLLAPSED_KEYS: KeyDef[] = [
   { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control', width: 0.8 },
   { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control', width: 0.8 },
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 1.2 },
+  { id: 'expand', label: '🔤', base: '', kind: 'ui', width: 1.0 },
   { id: 'ime', label: '🌐', base: '', kind: 'ui', width: 1.0 },
 ];
 
