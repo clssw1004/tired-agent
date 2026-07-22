@@ -23,6 +23,7 @@ import { TerminalView } from '../render-views';
 import { ChatTimeline } from '../ChatTimeline';
 import { PtyInterventionBar } from '../PtyInterventionBar';
 import { PtyMobileKeyboard } from '../PtyMobileKeyboard';
+import { useNav } from '../../store/NavContext';
 
 export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
   const {
@@ -43,30 +44,47 @@ export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
 
   const disabled = sessionStatus === 'exited';
 
+  /** Mobile-only: fullscreen toggle — collapses the top `.app-nav` to
+   *  reclaim its ~56px for the terminal. Button lives at the rightmost
+   *  edge of the session header so it shares the same hit area as the
+   *  back/title/status row. */
+  const { navHidden, toggleNav } = useNav();
+
+  const STATUS_LABEL: Record<typeof status, string> = {
+    typing: 'typing…',
+    live: 'live',
+    connecting: 'connecting…',
+    error: 'disconnected: ' + (transportError || 'unknown'),
+    offline: 'session has exited',
+  };
+
   return (
     <>
       <header className="chat-header">
         {onBack && (
           <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
         )}
-        <span className="chat-avatar chat-avatar-pc" aria-hidden>PC</span>
         <div className="chat-titles">
           <span className="chat-title-name">{sessionLabel || '…'}</span>
-          <span className="chat-title-host">{serverRef.name} · {serverRef.baseUrl}</span>
         </div>
-        <span className={'chat-status-dot dot-' + sessionStatus} aria-label={'session ' + sessionStatus} />
-      </header>
-
-      <div className={'chat-status chat-status-' + status} role="status">
-        <span className="chat-status-bar" />
-        <span className="chat-status-text">
-          {status === 'typing' && 'typing…'}
-          {status === 'live' && 'live'}
-          {status === 'connecting' && 'connecting…'}
-          {status === 'error' && 'disconnected: ' + transportError}
-          {status === 'offline' && 'session has exited'}
+        <span
+          className={'chat-status-merged chat-status-merged-' + status}
+          aria-label={'status: ' + STATUS_LABEL[status]}
+        >
+          {STATUS_LABEL[status]}
         </span>
-      </div>
+        <span className={'chat-status-dot dot-' + sessionStatus} aria-hidden />
+        <button
+          type="button"
+          className="chat-fullscreen-toggle"
+          onClick={toggleNav}
+          aria-label={navHidden ? 'Show top nav' : 'Hide top nav'}
+          aria-pressed={navHidden}
+          title={navHidden ? '显示顶部菜单' : '隐藏顶部菜单'}
+        >
+          <span aria-hidden>⛶</span>
+        </button>
+      </header>
 
       <div
         className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}

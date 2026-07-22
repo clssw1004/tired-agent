@@ -7,17 +7,20 @@ import { SessionCreatePage } from './pages/SessionCreatePage';
 import { TerminalPage } from './pages/TerminalPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { useAuth } from './store/AuthContext';
+import { NavProvider, useNav } from './store/NavContext';
 import { ToastProvider } from './components/Toast';
 
 /**
  * Top nav, only visible when the user is logged in. LoginPage handles
- * its own chrome.
+ * its own chrome. The `is-hidden` class is applied when the mobile toggle
+ * is collapsed (controlled by NavContext).
  */
 function AppNav() {
   const auth = useAuth();
+  const { navHidden } = useNav();
   if (auth.status !== 'logged-in') return null;
   return (
-    <nav className="app-nav">
+    <nav className={'app-nav' + (navHidden ? ' is-hidden' : '')}>
       <NavLink to="/servers" className={({ isActive }) => (isActive ? 'app-nav-link active' : 'app-nav-link')}>
         Agents
       </NavLink>
@@ -39,6 +42,7 @@ export default function App() {
     // to fill the viewport. Without it, nested `height: 100%` between the
     // router and the page collapses to 0 and xterm never gets a height.
     <ToastProvider>
+    <NavProvider>
     <div className="app-shell">
       <AppNav />
       <Routes>
@@ -53,6 +57,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
+    </NavProvider>
     </ToastProvider>
   );
 }
