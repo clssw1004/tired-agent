@@ -86,12 +86,19 @@ async function run() {
           console.log(`Agent started in background (PID ${child.pid ?? 'unknown'}, PID written to ${join(opts.dataDir, 'agent.pid')}).`);
           process.exit(0);
         }, 500);
-        child.on('exit', () => { clearTimeout(timer); console.error('Daemon exited immediately.'); process.exit(1); });
+        child.on('exit', (code, sig) => {
+          clearTimeout(timer);
+          console.error(`Daemon exited immediately (code=${code}, signal=${sig}).`);
+          process.exit(1);
+        });
         child.on('error', (err: Error) => {
           clearTimeout(timer);
           console.error('Failed to start daemon:', err.message);
           process.exit(1);
         });
+        // IMPORTANT: do NOT fall through to main(cfg) below — the watchdog
+        // timer or child events will call process.exit when appropriate.
+        return;
       }
 
       const registerString = opts.register || null;
