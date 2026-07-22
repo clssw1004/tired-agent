@@ -14,11 +14,11 @@
  *   Expanded  (~280px): full QWERTY layout (punctuation stripped to keep
  *                       buttons wide on 360 px phones — `/` retained for
  *                       shell command lookup, no other symbols):
- *                          Esc / Brk / ← ↑ ↓ → / ▾
+ *                          Esc / Brk / ▾
  *                       1 2 … 0 ⌫
  *                       Tab Q W … P
  *                       Caps A … L Enter
- *                       ⇧  Z … M / ⇧
+ *                       ⇧  Z … M / ← ↑ ↓ →
  *                       🌐 Ctrl Space
  *                       Toggling Shift then tapping a digit still emits
  *                       the shifted variant (`! @ # $ % ^ & * ( )`) —
@@ -91,14 +91,12 @@ function digitDef(ch: string): KeyDef {
 
 // ─── Row layouts (no punctuation — / retained for shell commands) ───
 
-/** Row 0 — utility: Esc / Brk / arrows / collapse toggle. */
+/** Row 0 — utility: Esc / Brk / collapse toggle. Direction keys moved to
+ *  the right side of Row 4 (BOTTOM_ROW) so they sit next to the keys the
+ *  user presses with their right thumb. */
 const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
   { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
-  { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
-  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
-  { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
-  { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
 
@@ -121,14 +119,18 @@ const HOME_ROW: KeyDef[] = [
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.25 },
 ];
 
-/** Row 4 — QWERTY bottom: ⇧ Z … M /. , . dropped; / retained because shells
- *  use it to trigger command lookup (Ctrl+R-style history search helpers,
- *  path completion, etc.). Only ONE shift on the left — phones are too
- *  narrow for a mirrored shift pair, and a single key covers every use. */
+/** Row 4 — QWERTY bottom: ⇧ Z … M / ← ↑ ↓ →. , . dropped; / retained because
+ *  shells use it to trigger command lookup (Ctrl+R-style history search
+ *  helpers, path completion, etc.). Direction keys live on the right end
+ *  where the right thumb naturally falls, freeing Row 0 from cramped arrows. */
 const BOTTOM_ROW: KeyDef[] = [
   { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
   { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol' },
+  { id: 'arrow-left', label: '←', base: '\x1b[D', kind: 'control' },
+  { id: 'arrow-up', label: '↑', base: '\x1b[A', kind: 'control' },
+  { id: 'arrow-down', label: '↓', base: '\x1b[B', kind: 'control' },
+  { id: 'arrow-right', label: '→', base: '\x1b[C', kind: 'control' },
 ];
 
 /** Row 5 — space row: 🌐 Ctrl Space. */
