@@ -1,0 +1,151 @@
+/**
+ * PtySessionViewMobile — mobile-specific shell for a PTY session.
+ *
+ * Layout (top to bottom):
+ *   1. Header         — title + status dot (no ⌨ 控制条 toggle on mobile).
+ *   2. Status strip   — live / typing / connecting / error / offline.
+ *   3. RenderArea     — TerminalView (xterm.js) + copy-FAB + jump-to-bottom.
+ *   4. Output-tail banner (when truncated).
+ *   5. InterventionBar + PtyMobileKeyboard (custom on-screen keys).
+ *
+ * Difference from desktop: no PtyInputBar (mobile cannot summon a system
+ * keyboard from an xterm canvas), no SpecialKeysBar toggle (the mobile
+ * keyboard already exposes Esc / Ctrl / arrows). The custom keyboard
+ * lives in PtyMobileKeyboard.
+ *
+ * Future mobile-specific polish (collapsed header, merged status, etc.)
+ * will be added here — keeping that work isolated from the desktop shell.
+ */
+
+import type { PtySessionViewSharedProps } from './shared';
+import { formatBytes } from './shared';
+import { TerminalView } from '../render-views';
+import { ChatTimeline } from '../ChatTimeline';
+import { PtyInterventionBar } from '../PtyInterventionBar';
+import { PtyMobileKeyboard } from '../PtyMobileKeyboard';
+
+export function PtySessionViewMobile(p: PtySessionViewSharedProps) {
+  const {
+    serverRef, sessionLabel, onBack, mode, sessionStatus,
+    connected, transportError, typing, atBottom, outputTail,
+    tailBannerDismissed, dismissTailBanner, structuredContents, streaming,
+    selection, copyFlash, termRef, modifiers,
+    writeBytes, copySelection, handleTermResize, loadFullHistory,
+    setAtBottom, setModifier, consumeModifier,
+  } = p;
+
+  const status: 'typing' | 'live' | 'connecting' | 'error' | 'offline' =
+    transportError ? 'error'
+    : !connected ? 'connecting'
+    : typing ? 'typing'
+    : sessionStatus === 'exited' ? 'offline'
+    : 'live';
+
+  const disabled = sessionStatus === 'exited';
+
+  return (
+    <>
+      <header className="chat-header">
+        {onBack && (
+          <button type="button" className="chat-back" onClick={onBack} aria-label="Back">‹</button>
+        )}
+        <span className="chat-avatar chat-avatar-pc" aria-hidden>PC</span>
+        <div className="chat-titles">
+          <span className="chat-title-name">{sessionLabel || '…'}</span>
+          <span className="chat-title-host">{serverRef.name} · {serverRef.baseUrl}</span>
+        </div>
+        <span className={'chat-status-dot dot-' + sessionStatus} aria-label={'session ' + sessionStatus} />
+      </header>
+
+      <div className={'chat-status chat-status-' + status} role="status">
+        <span className="chat-status-bar" />
+        <span className="chat-status-text">
+          {status === 'typing' && 'typing…'}
+          {status === 'live' && 'live'}
+          {status === 'connecting' && 'connecting…'}
+          {status === 'error' && 'disconnected: ' + transportError}
+          {status === 'offline' && 'session has exited'}
+        </span>
+      </div>
+
+      <div
+        className={'render-area' + (mode === 'persistent' ? ' render-area-structured' : '')}
+        onClick={() => mode !== 'persistent' && termRef.current?.focus()}
+      >
+        {mode === 'persistent' ? (
+          <ChatTimeline contents={structuredContents} streaming={streaming} />
+        ) : (
+          <>
+            <TerminalView
+              ref={termRef}
+              onUserInput={(data) => void writeBytes(data)}
+              onSelectionChange={() => {/* host tracks selection */}}
+              onScroll={(ab) => setAtBottom(ab)}
+              onResize={handleTermResize}
+            />
+            {selection && (
+              <button
+                type="button"
+                className={'xterm-copy-fab' + (copyFlash ? ' is-flash' : '')}
+                onClick={(e) => { e.stopPropagation(); void copySelection(); }}
+                aria-label="Copy selection"
+              >
+                <span aria-hidden>📋</span>
+                <span>{copyFlash ? '已复制' : '复制'}</span>
+              </button>
+            )}
+            {!atBottom && (
+              <button
+                type="button"
+                className="jump-to-bottom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  termRef.current?.scrollToBottom();
+                  setAtBottom(true);
+                }}
+                aria-label="Jump to latest output"
+              >
+                ↓ 跳到最新
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {outputTail?.truncated && !tailBannerDismissed && (
+        <div className="output-truncated-banner" role="status">
+          <span>
+            已加载尾部 {formatBytes(outputTail.loadedBytes)} / 共 {formatBytes(outputTail.totalBytes)}
+          </span>
+          <button type="button" onClick={() => void loadFullHistory()}>
+            加载完整历史
+          </button>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={dismissTailBanner}
+            aria-label="关闭"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      <PtyInterventionBar
+        key={mode === 'persistent' ? 'persistent' : 'ready'}
+        terminal={mode === 'persistent' ? null : termRef.current}
+        onResponse={(text) => void writeBytes(text)}
+      />
+
+      <div className="pty-input-wrapper">
+        <PtyMobileKeyboard
+          disabled={disabled}
+          modifiers={modifiers}
+          onSetModifier={setModifier}
+          onConsumeModifier={consumeModifier}
+          onKey={(bytes) => void writeBytes(bytes)}
+        />
+      </div>
+    </>
+  );
+}
