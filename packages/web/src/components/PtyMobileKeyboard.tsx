@@ -11,13 +11,19 @@
  *                      (← → dropped — available in expanded mode;
  *                       IME 🌐 + 🔤 expand both stay here so the system
  *                       keyboard and letter input are always reachable)
- *   Expanded  (~280px): full QWERTY layout mirroring a physical keyboard:
+ *   Expanded  (~280px): full QWERTY layout (punctuation stripped to keep
+ *                       buttons wide on 360 px phones — `/` retained for
+ *                       shell command lookup, no other symbols):
  *                          Esc / Brk / ← ↑ ↓ → / ▾
- *                       ` 1 2 … 0 - = ⌫
- *                       Tab Q W … P [ ] \
- *                       Caps A … L ; ' Enter
- *                       ⇧  Z … M , . / ⇧
+ *                       1 2 … 0 ⌫
+ *                       Tab Q W … P
+ *                       Caps A … L Enter
+ *                       ⇧  Z … M / ⇧
  *                       🌐 Ctrl Space
+ *                       Toggling Shift then tapping a digit still emits
+ *                       the shifted variant (`! @ # $ % ^ & * ( )`) —
+ *                       resolveBytes handles it; the variants just aren't
+ *                       printed on the key labels.
  *
  * Modifier model:
  *   - Shift: tap once (oneShot) → next letter is upper, next symbol uses its
@@ -55,21 +61,10 @@ interface KeyDef {
 
 // ─── Lookup tables ───────────────────────────────────────────────────
 
+/** Shift+digit → ! @ # $ % ^ & * ( ). Used by resolveBytes when the user
+ *  toggles Shift then taps a digit — matches physical-keyboard behavior
+ *  even though the shifted variant isn't rendered on the key label. */
 const SHIFTED_DIGITS = '!@#$%^&*()';
-
-const SHIFTED_SYMBOLS: Record<string, string> = {
-  '`': '~',
-  '-': '_',
-  '=': '+',
-  '[': '{',
-  ']': '}',
-  '\\': '|',
-  ';': ':',
-  "'": '"',
-  ',': '<',
-  '.': '>',
-  '/': '?',
-};
 
 // ─── Key factories ───────────────────────────────────────────────────
 
@@ -94,17 +89,7 @@ function digitDef(ch: string): KeyDef {
   };
 }
 
-function symbolDef(ch: string): KeyDef {
-  return {
-    id: ch,
-    label: ch,
-    base: ch,
-    shifted: SHIFTED_SYMBOLS[ch],
-    kind: 'symbol',
-  };
-}
-
-// ─── Row layouts (mirrors a 14-unit physical keyboard) ───────────────
+// ─── Row layouts (no punctuation — / retained for shell commands) ───
 
 /** Row 0 — utility: Esc / Brk / arrows / collapse toggle. */
 const TOP_UTIL_ROW: KeyDef[] = [
@@ -117,41 +102,33 @@ const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
 
-/** Row 1 — number row: ` 1 2 3 4 5 6 7 8 9 0 - = ⌫. */
+/** Row 1 — number row: 1 2 … 0 ⌫. Punctuation (` - =) dropped. */
 const NUMBER_ROW: KeyDef[] = [
-  symbolDef('`'),
   ...'1234567890'.split('').map(digitDef),
-  symbolDef('-'),
-  symbolDef('='),
   { id: 'backspace', label: '⌫', base: '\x7f', kind: 'action', width: 1.5 },
 ];
 
-/** Row 2 — QWERTY top: Tab q w e r t y u i o p [ ] \. */
+/** Row 2 — QWERTY top: Tab Q W … P. Bracket symbols ([ ] \) dropped. */
 const TOP_ROW: KeyDef[] = [
   { id: 'tab', label: 'Tab', base: '\t', shifted: '\x1b[Z', kind: 'control', width: 1.5 },
   ...'qwertyuiop'.split('').map(letterDef),
-  symbolDef('['),
-  symbolDef(']'),
-  symbolDef('\\'),
 ];
 
-/** Row 3 — QWERTY home: Caps a s d f g h j k l ; ' Enter. */
+/** Row 3 — QWERTY home: Caps A … L Enter. ; ' dropped. */
 const HOME_ROW: KeyDef[] = [
   { id: 'caps', label: 'Caps', base: '', kind: 'modifier', width: 1.75 },
   ...'asdfghjkl'.split('').map(letterDef),
-  symbolDef(';'),
-  symbolDef("'"),
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.25 },
 ];
 
-/** Row 4 — QWERTY bottom: ⇧ z x c v b n m , . / ⇧. */
+/** Row 4 — QWERTY bottom: ⇧ Z … M / ⇧. , . dropped; / retained because
+ *  shells use it to trigger command lookup (Ctrl+R-style history search
+ *  helpers, etc.). */
 const BOTTOM_ROW: KeyDef[] = [
-  { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.25 },
+  { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
-  symbolDef(','),
-  symbolDef('.'),
-  symbolDef('/'),
-  { id: 'shift2', label: '⇧', base: '', kind: 'modifier', width: 2.25 },
+  { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol' },
+  { id: 'shift2', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
 ];
 
 /** Row 5 — space row: 🌐 Ctrl Space. */
