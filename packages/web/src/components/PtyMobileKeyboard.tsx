@@ -121,14 +121,14 @@ const HOME_ROW: KeyDef[] = [
   { id: 'enter', label: '⏎', base: '\r', kind: 'control', width: 2.25 },
 ];
 
-/** Row 4 — QWERTY bottom: ⇧ Z … M / ⇧. , . dropped; / retained because
- *  shells use it to trigger command lookup (Ctrl+R-style history search
- *  helpers, etc.). */
+/** Row 4 — QWERTY bottom: ⇧ Z … M /. , . dropped; / retained because shells
+ *  use it to trigger command lookup (Ctrl+R-style history search helpers,
+ *  path completion, etc.). Only ONE shift on the left — phones are too
+ *  narrow for a mirrored shift pair, and a single key covers every use. */
 const BOTTOM_ROW: KeyDef[] = [
   { id: 'shift', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
   ...'zxcvbnm'.split('').map(letterDef),
   { id: '/', label: '/', base: '/', shifted: '?', kind: 'symbol' },
-  { id: 'shift2', label: '⇧', base: '', kind: 'modifier', width: 2.0 },
 ];
 
 /** Row 5 — space row: 🌐 Ctrl Space. */
@@ -300,7 +300,7 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
           const next: 'off' | 'oneShot' | 'sticky' =
             cur === 'off' ? 'oneShot' : cur === 'oneShot' ? 'sticky' : 'off';
           onSetModifier('ctrl', next);
-        } else if (def.id === 'shift' || def.id === 'shift2') {
+        } else if (def.id === 'shift') {
           const cur = modifiers.shift;
           const next: 'off' | 'oneShot' | 'sticky' =
             cur === 'off' ? 'oneShot' : cur === 'oneShot' ? 'sticky' : 'off';
@@ -331,7 +331,7 @@ export function PtyMobileKeyboard({ disabled, modifiers, onSetModifier, onConsum
     <KeyButton key={def.id} def={def}
       active={
         (def.id === 'ctrl' && modifiers.ctrl !== 'off') ||
-        ((def.id === 'shift' || def.id === 'shift2') && modifiers.shift !== 'off') ||
+        (def.id === 'shift' && modifiers.shift !== 'off') ||
         (def.id === 'caps' && capsOn)
       }
       disabled={disabled} onTap={handleTap} />
