@@ -1434,6 +1434,36 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   .pty-keyboard { display: none; }
 }
 
+/* [mobile-only] Compact session header — no avatar, status merged into title row */
+@media (max-width: 767px) {
+  .chat-header       { padding: 8px 12px; gap: 8px; min-height: 44px; }
+  .chat-back         { width: 32px; height: 32px; font-size: 18px; }
+  .chat-avatar       { display: none; }
+  .chat-title-host   { display: none; }
+  .chat-status       { display: none; }
+}
+
+.chat-status-merged {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+  flex-shrink: 0;
+  animation: chat-pulse 1s ease-in-out infinite;
+}
+.chat-status-merged.connecting { color: var(--connecting-color); }
+.chat-status-merged.typing     { color: var(--typing-color); font-weight: 600; }
+.chat-status-merged.live       { color: var(--live-color); }
+.chat-status-merged.error      { color: var(--error-color); }
+.chat-status-merged.offline    { color: var(--offline-color); }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-status-merged { animation: none; }
+}
+
 /* Touch targets ≥ 44px on touch-only devices (mobile-first). */
 @media (hover: none) {
   .chat-back, .intervention-btn { min-height: 44px; min-width: 44px; }
