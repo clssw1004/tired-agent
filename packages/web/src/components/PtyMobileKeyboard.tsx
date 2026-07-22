@@ -21,7 +21,7 @@
  *                       (back-tab byte \x1b[Z) without toggling Shift.
  *                       Shift renders as the full word to disambiguate
  *                       from the ⇧Tab combo:
- *                          Esc / Brk / ⇧ Tab / 🌐 / ▾
+ *                          Esc / ⇧ Tab / Brk / 🌐 / ▾
  *                       1 2 … 0 ⌫
  *                       Tab Q W … P
  *                       Caps A … L Enter
@@ -100,16 +100,19 @@ function digitDef(ch: string): KeyDef {
 
 // ─── Row layouts (no punctuation — / retained for shell commands) ───
 
-/** Row 0 — utility: Esc / Brk / ⇧Tab / 🌐 / ▾. The ⇧Tab key is a one-tap
+/** Row 0 — utility: Esc / ⇧Tab / Brk / 🌐 / ▾. The ⇧Tab key is a one-tap
  *  Shift+Tab combo — emits the back-tab byte \x1b[Z directly without
  *  requiring the user to toggle Shift first. Used to cycle Claude's
  *  permission mode (auto ↔ plan ↔ manual) which listens for back-tab.
- *  IME 🌐 sits next to ▾ so the system keyboard is summonable from the
- *  same row the user uses to collapse the keyboard. */
+ *  Sits next to Esc because the two are often pressed together when
+ *  dismissing a Claude permission prompt. Brk (\x1c) is the historical
+ *  BREAK signal — mostly a no-op in modern programs but kept for the
+ *  debugger / boot-loader edge cases. IME 🌐 + ▾ collapse share the
+ *  right edge of the row. */
 const TOP_UTIL_ROW: KeyDef[] = [
   { id: 'esc', label: 'Esc', base: '\x1b', kind: 'control' },
-  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
   { id: 'shift-tab', label: '⇧ Tab', base: '\x1b[Z', kind: 'control' },
+  { id: 'brk', label: 'Brk', base: '\x1c', kind: 'control' },
   { id: 'ime', label: '🌐', base: '', kind: 'ui' },
   { id: 'collapse', label: '▾', base: '', kind: 'ui' },
 ];
