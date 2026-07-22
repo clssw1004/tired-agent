@@ -221,8 +221,13 @@ function resolveBytes(key: KeyDef, mod: ModifierState, capsOn: boolean): string 
 
 // ─── IME Floating Input ──────────────────────────────────────────────
 
+/** Multi-line IME editor that pops over the on-screen keyboard.
+ *  Plain Enter inserts a newline; Shift+Enter / Ctrl+Enter / Cmd+Enter
+ *  send the chunk to the PTY (a single `\n`-terminated write so the
+ *  underlying program gets exactly one logical command line back).
+ *  Escape closes without sending. The ⏎ button always sends. */
 function ImeInput({ onSend, onClose }: { onSend: (t: string) => void; onClose: () => void }) {
-  const ref = useRef<HTMLInputElement>(null);
+  const ref = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState('');
 
   useEffect(() => { ref.current?.focus(); }, []);
@@ -235,15 +240,35 @@ function ImeInput({ onSend, onClose }: { onSend: (t: string) => void; onClose: (
 
   return (
     <div className="pty-ime-overlay">
-      <div className="pty-ime-bar">
-        <input ref={ref} type="text" value={text} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const native = e.nativeEvent as any;
-            if (e.key === 'Enter' && !native.isComposing) send();
-            if (e.key === 'Escape') onClose();
-          }}
-          placeholder="输入文字…" autoComplete="off" spellCheck={false} />
+      <textarea
+        ref={ref}
+        className="pty-ime-textarea"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const native = e.nativeEvent as any;
+          if (native.isComposing) return;
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onClose();
+            return;
+          }
+          // Shift/Ctrl/Cmd + Enter → send. Plain Enter falls through to
+          // the textarea default and inserts a newline.
+          if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        placeholder="输入文字 — Enter 换行，Shift+Enter 发送"
+        rows={3}
+        autoComplete="off"
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
+      />
+      <div className="pty-ime-actions">
         <button type="button" className="pty-ime-close" onClick={onClose} aria-label="取消">✕</button>
         <button type="button" className="inputbar-send" onClick={send} aria-label="发送">⏎</button>
       </div>
