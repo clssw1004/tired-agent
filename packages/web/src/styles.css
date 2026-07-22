@@ -42,6 +42,13 @@ html, body, #root {
   min-width: 0;
   flex-direction: column;
   overflow-x: hidden;
+  /* Pin the Y axis explicitly to avoid the CSS-spec trap where setting
+     overflow-x to anything other than `visible` silently promotes the
+     other axis to `auto`. With overflow-y: hidden the shell is not a
+     scroll container, so the soft-keyboard can't scroll-into-view the
+     focused IME textarea inside it and leave a residual scroll offset
+     visible as a blank band when the keyboard retracts. */
+  overflow-y: hidden;
   /* Prevent iOS Safari rubber-banding from triggering horizontal page movement. */
   overscroll-behavior-x: none;
 }
@@ -530,8 +537,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   /* Safety net: the xterm canvas or any wide child should never push the
      page wider than the viewport on mobile. overflow: hidden clips any
      extreme overflow (e.g. a fit() timing race that leaves the canvas
-     briefly too wide before the ResizeObserver fires). */
+     briefly too wide before the ResizeObserver fires).
+     IMPORTANT: explicitly setting overflow-y: hidden here is required —
+     the CSS spec says that when one axis is non-default (here overflow-x
+     = hidden) the OTHER axis is computed as auto if left at its default.
+     Without this, .chat-panel becomes a scrollable container, and the
+     soft-keyboard's scroll-into-view of the focused IME textarea leaves
+     a non-zero scrollTop that survives the keyboard retraction —
+     visible as a blank band below the on-screen keyboard. */
   overflow-x: hidden;
+  overflow-y: hidden;
   background:
     radial-gradient(ellipse at top, rgba(51,154,240,0.05), transparent 60%),
     var(--bg);
