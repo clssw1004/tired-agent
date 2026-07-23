@@ -34,6 +34,8 @@ COPY --from=web-builder     /app/packages/web/dist       ./packages/web/dist
 COPY --from=manager-builder /app/packages/manager/dist   ./packages/manager/dist
 COPY --from=manager-builder /app/packages/manager/package.json ./packages/manager/
 COPY --from=manager-builder /app/node_modules            ./node_modules
+# @tired-agent/protocol 是 workspace symlink → ../../packages/protocol，
+# 复制 dist + package.json 让 Node.js 能解析入口
 COPY --from=manager-builder /app/packages/protocol/dist  ./packages/protocol/dist
 COPY --from=manager-builder /app/packages/protocol/package.json ./packages/protocol/
 
