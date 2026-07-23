@@ -35,6 +35,7 @@ COPY --from=manager-builder /app/packages/manager/dist   ./packages/manager/dist
 COPY --from=manager-builder /app/packages/manager/package.json ./packages/manager/
 COPY --from=manager-builder /app/node_modules            ./node_modules
 COPY --from=manager-builder /app/packages/protocol/dist  ./packages/protocol/dist
+COPY --from=manager-builder /app/packages/protocol/package.json ./packages/protocol/
 
 ENV CLSSW_MANAGER_HOST=0.0.0.0
 ENV CLSSW_MANAGER_PORT=8443
