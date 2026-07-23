@@ -14,7 +14,8 @@
  * 自动续期触发：
  *   1. mount 后起 1h interval 检查 sessionToken 寿命
  *   2. visibilitychange visible → 补查一次
- *   3. 每次 build 请求前确保 fresh（由 caller 自行调 ensureFreshSession 或
+ *   3. storage 事件 → 跨标签页同步 refreshToken
+ *   4. 每次 build 请求前确保 fresh（由 caller 自行调 ensureFreshSession 或
  *      在每个 manager API 调用前隐式检查）
  *
  * 并发合并：同一 refreshToken 的 refresh 请求正在 inflight 时，后续 await 复用。
@@ -151,6 +152,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', handler);
     return () => document.removeEventListener('visibilitychange', handler);
   }, [doRefresh]);
+
+  // ── 跨标签页同步 ───────────────────────────────────────────────────
+  // 其他 tab 刷新 refreshToken 写入 localStorage 后，当前 tab 自动同步
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === REFRESH_TOKEN_KEY && e.newValue) {
+        _refreshToken = e.newValue;
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
 
   // ── refreshAgents ─────────────────────────────────────────────────────────
 
@@ -297,9 +310,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('logged-in');
       } catch {
         if (cancelled) return;
-        localStorage.removeItem(REFRESH_TOKEN_KEY);
-        _refreshToken = null;
+        // Don't clear refreshToken on transient error (network blip, server
+        // restart) — keep it in localStorage so a subsequent page load or
+        // returning to the tab can retry the refresh silently.
         _sessionToken = null;
+        _sessionExpiresAtMs = 0;
         setSessionToken(null);
         setStatus('needs-credentials');
       }

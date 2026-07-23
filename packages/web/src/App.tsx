@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { ServerListPage } from './pages/ServerListPage';
 import { ServerEditPage } from './pages/ServerEditPage';
@@ -9,6 +10,21 @@ import { OnboardingPage } from './pages/OnboardingPage';
 import { useAuth } from './store/AuthContext';
 import { NavProvider, useNav } from './store/NavContext';
 import { ToastProvider } from './components/Toast';
+
+/**
+ * Route guard — redirects to login when not authenticated.
+ * Shows a loading state while the boot effect resolves.
+ */
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  if (auth.status === 'uninitialized') {
+    return <div className="page-loading">Loading…</div>;
+  }
+  if (auth.status !== 'logged-in') {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
 
 /**
  * Top nav, only visible when the user is logged in. LoginPage handles
@@ -47,13 +63,13 @@ export default function App() {
       <AppNav />
       <Routes>
         <Route path="/" element={<LoginPage />} />
-        <Route path="/servers" element={<ServerListPage />} />
-        <Route path="/servers/new" element={<ServerEditPage mode="create" />} />
-        <Route path="/servers/:id/edit" element={<ServerEditPage mode="edit" />} />
-        <Route path="/servers/:id" element={<SessionListPage />} />
-        <Route path="/servers/:id/sessions/new" element={<SessionCreatePage />} />
-        <Route path="/servers/:id/sessions/:sid" element={<TerminalPage />} />
-        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/servers" element={<ProtectedRoute><ServerListPage /></ProtectedRoute>} />
+        <Route path="/servers/new" element={<ProtectedRoute><ServerEditPage mode="create" /></ProtectedRoute>} />
+        <Route path="/servers/:id/edit" element={<ProtectedRoute><ServerEditPage mode="edit" /></ProtectedRoute>} />
+        <Route path="/servers/:id" element={<ProtectedRoute><SessionListPage /></ProtectedRoute>} />
+        <Route path="/servers/:id/sessions/new" element={<ProtectedRoute><SessionCreatePage /></ProtectedRoute>} />
+        <Route path="/servers/:id/sessions/:sid" element={<ProtectedRoute><TerminalPage /></ProtectedRoute>} />
+        <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
