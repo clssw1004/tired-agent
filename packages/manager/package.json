@@ -1,6 +1,6 @@
 {
   "name": "@tired-agent/manager",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "description": "tired-agent manager — web portal + agent proxy + SPA host",
   "repository": {
