@@ -2,8 +2,9 @@
  * Storage layer for the manager.
  *
  * Two tables:
- *   - manager_agents   — registry of agents the manager can proxy to
- *   - manager_sessions — opaque session tokens issued after login
+ *   - manager_agents    — registry of agents the manager can proxy to
+ *   - manager_sessions  — paired (sessionToken, refreshToken) rows with
+ *                         independent TTLs. Sliding refresh on each use.
  *
  * Uses better-sqlite3 directly (no kysely yet — the surface is tiny and
  * staying close to SQL makes the schema migration story obvious).
@@ -20,7 +21,7 @@ const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _sqlite: any = _require('better-sqlite3');
 // The CJS export may be `.default` (when required from ESM bundlers) or
-// the module itself (when required directly).
+// the module itself (when required from CJS).
 const Database = _sqlite.default ?? _sqlite;
 
 // ─── Public types ──────────────────────────────────────────────────────────
@@ -40,11 +41,20 @@ export interface Agent {
   createdAt: number;
 }
 
-/** A pending browser session after a successful login. */
+/**
+ * A paired session issued at login. Both tokens share a row, but each
+ * has an independent expiry:
+ *  - `sessionToken` is short-lived; failures (or expiry) require a refresh.
+ *  - `refreshToken` is long-lived; each successful refresh *slides* its
+ *    expiry forward (mobile UX goal: an active user never has to log in
+ *    again). The refresh is single-use so concurrent clients can't double-spend.
+ */
 export interface Session {
   token: string;
+  refreshToken: string;
   createdAt: number;
   expiresAt: number;
+  refreshExpiresAt: number;
 }
 
 export interface Storage {
@@ -73,10 +83,30 @@ export interface Storage {
    */
   registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string };
   // ── sessions ──
-  createSession(): { token: string; expiresAt: number };
+  createSession(sessionTtlMs: number, refreshTtlMs: number): Session;
+  /** Return session if `token` is the active sessionToken and not expired. */
   getSession(token: string): { expiresAt: number } | undefined;
+  /** Return the full session row keyed by refreshToken if not expired. */
+  findSessionByRefreshToken(token: string): Session | undefined;
+  /**
+   * Atomic single-use refresh:
+   *  - Look up the row by `refreshToken`.
+   *  - Validate `refreshExpiresAt > now`.
+   *  - DELETE old row + INSERT new row (with new sessionToken + new refreshToken,
+   *    with both expiries sliding forward).
+   *  - Return new Session; or undefined when the token is expired/missing.
+   *
+   * Because the old row is deleted in the same transaction as the insert,
+   * a concurrent refresh with the same token races and finds the row
+   * already gone → undefined. Caller translates that to a 401.
+   */
+  refreshSession(refreshToken: string, sessionTtlMs: number, refreshTtlMs: number): Session | undefined;
+  /** Drop the whole session row (covers both tokens at once). */
   deleteSession(token: string): void;
-  /** Drop sessions that have expired. Cheap sweep called on each request. */
+  /**
+   * Sweep all rows with expired session OR refresh TTL.
+   * Cheap sweep called on each request.
+   */
   pruneExpired(): number;
   /** Close the underlying SQLite handle. */
   close(): Promise<void>;
@@ -84,17 +114,21 @@ export interface Storage {
 
 // ─── SQLite-backed implementation ─────────────────────────────────────────
 
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
 export function createStorage(dataDir: string): Storage {
-  const dbPath = join(dataDir, 'manager.sqlite');
+  // `:memory:` is a sentinel that lets tests skip the filesystem. better-sqlite3
+  // accepts it directly to mean an in-memory, per-connection DB; do NOT wrap it
+  // in path.join (which would turn it into a regular filename).
+  const dbPath = dataDir === ':memory:' ? ':memory:' : join(dataDir, 'manager.sqlite');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let _db: any = null;
 
   function db(): import('better-sqlite3').Database {
     if (_db) return _db;
     _db = new Database(dbPath);
-    _db.pragma('journal_mode = WAL');
+    // WAL requires a real file. In-memory databases work without it.
+    if (dbPath !== ':memory:') {
+      _db.pragma('journal_mode = WAL');
+    }
     _db.exec(`
       CREATE TABLE IF NOT EXISTS manager_agents (
         id          TEXT PRIMARY KEY,
@@ -110,9 +144,11 @@ export function createStorage(dataDir: string): Storage {
       CREATE INDEX IF NOT EXISTS manager_agents_baseUrl ON manager_agents(baseUrl);
 
       CREATE TABLE IF NOT EXISTS manager_sessions (
-        token       TEXT PRIMARY KEY,
-        createdAt   INTEGER NOT NULL,
-        expiresAt   INTEGER NOT NULL
+        token              TEXT PRIMARY KEY,        -- sessionToken
+        refresh_token      TEXT NOT NULL UNIQUE,    -- refreshToken
+        createdAt          INTEGER NOT NULL,
+        expiresAt          INTEGER NOT NULL,        -- sessionToken expiry
+        refresh_expires_at INTEGER NOT NULL         -- refreshToken expiry
       );
 
       CREATE INDEX IF NOT EXISTS manager_sessions_expires
@@ -122,13 +158,16 @@ export function createStorage(dataDir: string): Storage {
   }
 
   async function init() {
-    await mkdir(dataDir, { recursive: true });
+    if (dataDir !== ':memory:') {
+      await mkdir(dataDir, { recursive: true });
+    }
     const handle = db(); // touch schema
 
-    // Migration: add agent_key column for databases from v0.1.
-    // The bare `try { ... } catch` is intentional — running ALTER on a
-    // table that already has the column throws "duplicate column name",
-    // which is the happy path for an idempotent migration.
+    // Migration: v0.1 → dual-token schema.
+    //   - manager_agents.agent_key column
+    //   - manager_sessions: refresh_token + refresh_expires_at columns
+    // Bare try/catch is intentional — running ALTER on an already-up-to-date
+    // table throws "duplicate column name", which is the happy path.
     const hasAgentKey = handle
       .prepare("SELECT 1 FROM pragma_table_info('manager_agents') WHERE name = 'agent_key'")
       .get();
@@ -138,6 +177,29 @@ export function createStorage(dataDir: string): Storage {
       );
       handle.exec(
         `CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key)`,
+      );
+    }
+
+    const hasRefreshToken = handle
+      .prepare("SELECT 1 FROM pragma_table_info('manager_sessions') WHERE name = 'refresh_token'")
+      .get();
+    if (!hasRefreshToken) {
+      // Pre-migration rows lacked a refresh token. We can't synthesize a
+      // usable one (the session was single-shot before), so wipe legacy rows.
+      // Affected users see "please log in again" once after upgrade.
+      handle.exec(`DELETE FROM manager_sessions`);
+      handle.exec(
+        `ALTER TABLE manager_sessions ADD COLUMN refresh_token TEXT NOT NULL DEFAULT ''`,
+      );
+      handle.exec(
+        `ALTER TABLE manager_sessions ADD COLUMN refresh_expires_at INTEGER NOT NULL DEFAULT 0`,
+      );
+      // MySQL/SQLite UNIQUE constraint via separate index (see CREATE TABLE).
+      handle.exec(
+        `CREATE INDEX IF NOT EXISTS manager_sessions_refresh_token ON manager_sessions(refresh_token)`,
+      );
+      handle.exec(
+        `CREATE INDEX IF NOT EXISTS manager_sessions_refresh_expires ON manager_sessions(refresh_expires_at)`,
       );
     }
   }
@@ -236,15 +298,16 @@ export function createStorage(dataDir: string): Storage {
 
   // ── sessions ────────────────────────────────────────────────────────────
 
-  function createSession(): { token: string; expiresAt: number } {
-    // 32 bytes → 64 hex chars. URL-safe enough for a Bearer header.
+  function createSession(sessionTtlMs: number, refreshTtlMs: number): Session {
     const token = randomBytes(32).toString('hex');
+    const refreshToken = randomBytes(32).toString('hex');
     const now = Date.now();
-    const expiresAt = now + SESSION_TTL_MS;
+    const expiresAt = now + sessionTtlMs;
+    const refreshExpiresAt = now + refreshTtlMs;
     db().prepare(
-      'INSERT INTO manager_sessions (token, createdAt, expiresAt) VALUES (?, ?, ?)',
-    ).run(token, now, expiresAt);
-    return { token, expiresAt };
+      'INSERT INTO manager_sessions (token, refresh_token, createdAt, expiresAt, refresh_expires_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(token, refreshToken, now, expiresAt, refreshExpiresAt);
+    return { token, refreshToken, createdAt: now, expiresAt, refreshExpiresAt };
   }
 
   function getSession(token: string): { expiresAt: number } | undefined {
@@ -255,21 +318,94 @@ export function createStorage(dataDir: string): Storage {
     if (!row) return undefined;
     const expiresAt = Number(row.expiresAt);
     if (expiresAt < Date.now()) {
-      // Expired: clean up opportunistically and report as missing.
-      db().prepare('DELETE FROM manager_sessions WHERE token = ?').run(token);
+      // Expired sessionToken: still possible this row is alive via
+      // refreshToken (sliding). Don't delete — the row is still useful
+      // for refresh until refresh_expires_at hits; `pruneExpired`
+      // handles that. Just report missing here.
       return undefined;
     }
     return { expiresAt };
   }
 
+  function findSessionByRefreshToken(token: string): Session | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = db()
+      .prepare('SELECT token, refresh_token, createdAt, expiresAt, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
+      .get(token);
+    if (!row) return undefined;
+    const refreshExpiresAt = Number(row.refresh_expires_at);
+    if (refreshExpiresAt < Date.now()) {
+      db().prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
+      return undefined;
+    }
+    return {
+      token: row.token,
+      refreshToken: row.refresh_token,
+      createdAt: Number(row.createdAt),
+      expiresAt: Number(row.expiresAt),
+      refreshExpiresAt,
+    };
+  }
+
+  function refreshSession(
+    refreshToken: string,
+    sessionTtlMs: number,
+    refreshTtlMs: number,
+  ): Session | undefined {
+    const handle = db();
+    const now = Date.now();
+
+    // Wrap in a single transaction. better-sqlite3 transactions are
+    // synchronous and serialization is per-connection — fast enough for
+    // the manager's load.
+    const txn = handle.transaction((token: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row: any = handle
+        .prepare('SELECT expiresAt, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
+        .get(token);
+      if (!row) return undefined;
+      const refreshExpiresAt = Number(row.refresh_expires_at);
+      if (refreshExpiresAt < now) {
+        // Expired refresh: drop the row, report missing.
+        handle.prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
+        return undefined;
+      }
+      // Single-use: delete the old row.
+      handle.prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
+      // Insert new row with new sessionToken + new refreshToken. Sliding
+      // means the user keeps the same 30-day window as long as they
+      // refresh at least once before it ends.
+      const newToken = randomBytes(32).toString('hex');
+      const newRefreshToken = randomBytes(32).toString('hex');
+      const newExpiresAt = now + sessionTtlMs;
+      const newRefreshExpiresAt = now + refreshTtlMs;
+      handle.prepare(
+        'INSERT INTO manager_sessions (token, refresh_token, createdAt, expiresAt, refresh_expires_at) VALUES (?, ?, ?, ?, ?)',
+      ).run(newToken, newRefreshToken, now, newExpiresAt, newRefreshExpiresAt);
+      return {
+        token: newToken,
+        refreshToken: newRefreshToken,
+        createdAt: now,
+        expiresAt: newExpiresAt,
+        refreshExpiresAt: newRefreshExpiresAt,
+      };
+    });
+    return txn(refreshToken);
+  }
+
   function deleteSession(token: string): void {
-    db().prepare('DELETE FROM manager_sessions WHERE token = ?').run(token);
+    // Either token identifies the row, so delete by both columns in one
+    // statement to avoid a SELECT-then-DELETE round trip.
+    db().prepare(
+      'DELETE FROM manager_sessions WHERE token = ? OR refresh_token = ?',
+    ).run(token, token);
   }
 
   function pruneExpired(): number {
+    const now = Date.now();
     const r = db()
-      .prepare('DELETE FROM manager_sessions WHERE expiresAt < ?')
-      .run(Date.now());
+      .prepare('DELETE FROM manager_sessions WHERE expiresAt < ? OR refresh_expires_at < ?')
+      .run(now, now);
     return r.changes;
   }
 
@@ -302,6 +438,8 @@ export function createStorage(dataDir: string): Storage {
     registerAgent,
     createSession,
     getSession,
+    findSessionByRefreshToken,
+    refreshSession,
     deleteSession,
     pruneExpired,
     close,

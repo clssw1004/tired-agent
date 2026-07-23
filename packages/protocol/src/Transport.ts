@@ -6,7 +6,7 @@
  * code does not need to change.
  *
  * Each method accepts an optional `agentId`. When set, the call is routed
- * through a Manager's proxy (`/v1/agents/:aid/...`) to a specific Agent.
+ * through a Manager's proxy (under `API_PREFIX`/agents/:aid/...) to a specific Agent.
  */
 
 import type {
@@ -143,8 +143,28 @@ export interface Transport {
   // declared on Transport (not a separate interface) so the SPA can call
   // them through the same factory without switching clients.
 
-  /** Log in to a Manager with its admin token. Returns a session token. */
-  login(ref: ServerRef, token: string): Promise<{ sessionToken: string }>;
+  /** Log in to a Manager with its admin token. Returns paired tokens. */
+  login(ref: ServerRef, token: string): Promise<{
+    sessionToken: string;
+    refreshToken: string;
+    sessionExpiresIn: number;
+    refreshExpiresIn: number;
+  }>;
+
+  /**
+   * Invalidate the current refresh token and issue a new session
+   * (single-use sliding refresh). Call when sessionToken is about to
+   * expire; the old tokens are destroyed on the server.
+   */
+  refreshSession(
+    ref: ServerRef,
+    refreshToken: string,
+  ): Promise<{
+    sessionToken: string;
+    refreshToken: string;
+    sessionExpiresIn: number;
+    refreshExpiresIn: number;
+  }>;
 
   /** Verify the current session token is still valid. */
   checkSession(ref: ServerRef): Promise<boolean>;

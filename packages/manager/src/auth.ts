@@ -1,7 +1,8 @@
 /**
  * Bearer-session authentication middleware.
  *
- * Every request (except the public login route, the health probe, and CORS
+ * Every request (except the public login & refresh routes, the health
+ * probe, and CORS
  * preflights) must carry `Authorization: Bearer <session-token>` or
  * `?access_token=<session-token>` (SSE EventSource cannot send headers).
  * The token is looked up in the manager_sessions table and rejected if
@@ -13,6 +14,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Storage } from './storage.js';
+import { API_PREFIX } from '@tired-agent/protocol';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -23,8 +25,9 @@ declare module 'fastify' {
 
 const PUBLIC_PATHS = new Set<string>([
   '/health',
-  '/v1/manager/auth/login',
-  '/v1/manager/agents/register',
+  `${API_PREFIX}/manager/auth/login`,
+  `${API_PREFIX}/manager/auth/refresh`,   // refresh authenticates with refreshToken, not sessionToken
+  `${API_PREFIX}/manager/agents/register`,
 ]);
 
 export function registerAuth(app: FastifyInstance, storage: Storage): void {
@@ -36,8 +39,8 @@ export function registerAuth(app: FastifyInstance, storage: Storage): void {
     const path = req.url.split('?')[0] ?? req.url;
     if (PUBLIC_PATHS.has(path)) return;
 
-    // Anything that isn't under /v1/ is a SPA asset — always allow.
-    if (!path.startsWith('/v1/')) return;
+    // Anything that isn't under the API prefix is a SPA asset — always allow.
+    if (!path.startsWith(API_PREFIX) && path !== '/health') return;
 
     // Extract token from Authorization header or ?access_token= query param
     // (the latter is needed for SSE streams where EventSource cannot set

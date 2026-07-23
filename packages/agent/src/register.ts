@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import type { ServerConfig } from './config.js';
+import { API_PREFIX } from '@tired-agent/protocol';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -77,6 +78,8 @@ export async function saveCredentials(dataDir: string, creds: AgentCredentials):
  * POSTs the agent's name, self-reported URL, and (on re-registration) the
  * persistent agentKey for dedup. Returns the assigned agent id and API token.
  */
+
+
 export async function registerWithManager(
   managerUrl: string,
   name: string,
@@ -84,7 +87,7 @@ export async function registerWithManager(
   agentKey?: string,
 ): Promise<{ id: string; token: string }> {
   const base = managerUrl.replace(/\/+$/, '');
-  const url = `${base}/v1/manager/agents/register`;
+  const url = `${base}${API_PREFIX}/manager/agents/register`;
 
   const body: Record<string, string> = {
     name,

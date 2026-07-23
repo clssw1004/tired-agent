@@ -1,7 +1,7 @@
 /**
  * REST API routes for the agent's directory browser.
  *
- * Base path: /v1/directories
+ * Base path: /directories
  *
  * Schema validation via zod. Wire-level types are re-exported from
  * @tired-agent/protocol; this layer is responsible only for translating
@@ -53,18 +53,18 @@ export function registerDirectoryRoutes(
   store: DirectoryStore,
 ): void {
   // ── Shortcuts (favorites + recent) — fixed path before parameterized ones ──
-  app.get('/v1/directories/shortcuts', async (_req, reply) => {
+  app.get('/directories/shortcuts', async (_req, reply) => {
     try {
       const shortcuts = await store.getShortcuts();
       return reply.code(200).send(shortcuts);
     } catch (err) {
-      log.error({ err }, 'GET /v1/directories/shortcuts failed');
+      log.error({ err }, 'GET /directories/shortcuts failed');
       return mapError(reply, err);
     }
   });
 
   // ── List children of a directory ─────────────────────────────────────
-  app.get<{ Querystring: { path?: string } }>('/v1/directories', async (req, reply) => {
+  app.get<{ Querystring: { path?: string } }>('/directories', async (req, reply) => {
     const parsed = ListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -75,13 +75,13 @@ export function registerDirectoryRoutes(
       const listing = await service.list(parsed.data.path);
       return reply.code(200).send(listing);
     } catch (err) {
-      log.error({ err }, 'GET /v1/directories failed');
+      log.error({ err }, 'GET /directories failed');
       return mapError(reply, err);
     }
   });
 
   // ── Add favorite ─────────────────────────────────────────────────────
-  app.post('/v1/directories/favorites', async (req, reply) => {
+  app.post('/directories/favorites', async (req, reply) => {
     const parsed = FavoriteSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -94,14 +94,14 @@ export function registerDirectoryRoutes(
       const favorite = await store.addFavorite(parsed.data.path, parsed.data.name);
       return reply.code(201).send(favorite);
     } catch (err) {
-      log.error({ err }, 'POST /v1/directories/favorites failed');
+      log.error({ err }, 'POST /directories/favorites failed');
       return mapError(reply, err);
     }
   });
 
   // ── Remove favorite by id (parameterized path, must come last) ───────
   app.delete<{ Params: { id: string } }>(
-    '/v1/directories/favorites/:id',
+    '/directories/favorites/:id',
     async (req, reply) => {
       try {
         const removed = await store.removeFavorite(req.params.id);
@@ -112,7 +112,7 @@ export function registerDirectoryRoutes(
         }
         return reply.code(204).send();
       } catch (err) {
-        log.error({ err }, 'DELETE /v1/directories/favorites/:id failed');
+        log.error({ err }, 'DELETE /directories/favorites/:id failed');
         return mapError(reply, err);
       }
     },

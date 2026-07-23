@@ -210,7 +210,7 @@ export interface ResizeRequest {
   rows: number;
 }
 
-/** SSE event types emitted on `/v1/sessions/:id/stream`. */
+/** SSE event types emitted on `/api/v1/sessions/:id/stream`. */
 export type StreamEvent =
   | { type: 'output'; offset: number; data: string }
   | { type: 'state'; session: Session }
