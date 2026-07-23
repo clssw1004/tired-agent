@@ -463,14 +463,46 @@ export class HttpSseTransport implements Transport {
     await checkOk(res, 'deleteAgent');
   }
 
-  async login(ref: ServerRef, token: string): Promise<{ sessionToken: string }> {
+  async login(ref: ServerRef, token: string): Promise<{
+    sessionToken: string;
+    refreshToken: string;
+    sessionExpiresIn: number;
+    refreshExpiresIn: number;
+  }> {
     const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
     await checkOk(res, 'login');
-    return (await res.json()) as { sessionToken: string };
+    return (await res.json()) as {
+      sessionToken: string;
+      refreshToken: string;
+      sessionExpiresIn: number;
+      refreshExpiresIn: number;
+    };
+  }
+
+  async refreshSession(
+    ref: ServerRef,
+    refreshToken: string,
+  ): Promise<{
+    sessionToken: string;
+    refreshToken: string;
+    sessionExpiresIn: number;
+    refreshExpiresIn: number;
+  }> {
+    const res = await this.fetchImpl(`${ensureBaseUrl(ref)}/v1/manager/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${refreshToken}` },
+    });
+    await checkOk(res, 'refreshSession');
+    return (await res.json()) as {
+      sessionToken: string;
+      refreshToken: string;
+      sessionExpiresIn: number;
+      refreshExpiresIn: number;
+    };
   }
 
   async checkSession(ref: ServerRef): Promise<boolean> {
