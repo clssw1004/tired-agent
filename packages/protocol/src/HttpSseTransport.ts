@@ -495,7 +495,7 @@ export class HttpSseTransport implements Transport {
   }> {
     const res = await this.fetchImpl(`${ensureBaseUrl(ref)}${API_PREFIX}/manager/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${refreshToken}` },
+      headers: { Authorization: `Bearer ${refreshToken}` },
     });
     await checkOk(res, 'refreshSession');
     return (await res.json()) as {
