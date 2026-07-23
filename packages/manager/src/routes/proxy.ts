@@ -4,18 +4,18 @@
  * Browser → Manager → Agent. The manager owns the agent's token; the
  * browser only ever talks to the manager and never sees the agent URL.
  *
- *   GET    /v1/agents/:aid/sessions                → list sessions
- *   POST   /v1/agents/:aid/sessions                → create session
- *   GET    /v1/agents/:aid/sessions/:sid           → get session metadata
- *   DELETE /v1/agents/:aid/sessions/:sid           → kill/delete session
- *   POST   /v1/agents/:aid/sessions/:sid/input     → send input
- *   POST   /v1/agents/:aid/sessions/:sid/resize    → resize PTY
- *   GET    /v1/agents/:aid/sessions/:sid/output    → fetch historical output
- *   GET    /v1/agents/:aid/sessions/:sid/stream    → SSE live passthrough
- *   GET    /v1/agents/:aid/directories             → list directory entries (?path=)
- *   GET    /v1/agents/:aid/directories/shortcuts   → favorites + recent
- *   POST   /v1/agents/:aid/directories/favorites   → add favorite
- *   DELETE /v1/agents/:aid/directories/favorites/:id → remove favorite
+ *   GET    '/agents/:aid/sessions                → list sessions
+ *   POST   /agents/:aid/sessions                → create session
+ *   GET    '/agents/:aid/sessions/:sid           → get session metadata
+ *   DELETE /agents/:aid/sessions/:sid           → kill/delete session
+ *   POST   /agents/:aid/sessions/:sid/input     → send input
+ *   POST   /agents/:aid/sessions/:sid/resize    → resize PTY
+ *   GET    '/agents/:aid/sessions/:sid/output    → fetch historical output
+ *   GET    '/agents/:aid/sessions/:sid/stream    → SSE live passthrough
+ *   GET    '/agents/:aid/directories             → list directory entries (?path=)
+ *   GET    '/agents/:aid/directories/shortcuts   → favorites + recent
+ *   POST   /agents/:aid/directories/favorites   → add favorite
+ *   DELETE /agents/:aid/directories/favorites/:id → remove favorite
  *
  * The agent's token is passed as `?access_token=…` on every forwarded
  * request — that matches what HttpSseTransport does on the client side,
@@ -93,23 +93,23 @@ async function proxyJson(
 
 export function registerProxyRoutes(app: FastifyInstance, storage: Storage): void {
   // ── List / create sessions ────────────────────────────────────────────
-  app.get<{ Params: { aid: string } }>('/v1/agents/:aid/sessions', async (req, reply) => {
-    return proxyJson(storage, req.params.aid, 'GET', '/v1/sessions', undefined, reply);
+  app.get<{ Params: { aid: string } }>('/agents/:aid/sessions', async (req, reply) => {
+    return proxyJson(storage, req.params.aid, 'GET', '/api/v1/sessions', undefined, reply);
   });
 
-  app.post<{ Params: { aid: string } }>('/v1/agents/:aid/sessions', async (req, reply) => {
-    return proxyJson(storage, req.params.aid, 'POST', '/v1/sessions', req.body, reply);
+  app.post<{ Params: { aid: string } }>('/agents/:aid/sessions', async (req, reply) => {
+    return proxyJson(storage, req.params.aid, 'POST', '/api/v1/sessions', req.body, reply);
   });
 
   // ── Single-session operations ──────────────────────────────────────────
   app.get<{ Params: { aid: string; sid: string } }>(
-    '/v1/agents/:aid/sessions/:sid',
+    '/agents/:aid/sessions/:sid',
     async (req, reply) => {
       return proxyJson(
         storage,
         req.params.aid,
         'GET',
-        `/v1/sessions/${encodeURIComponent(req.params.sid)}`,
+        `/api/v1/sessions/${encodeURIComponent(req.params.sid)}`,
         undefined,
         reply,
       );
@@ -117,13 +117,13 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   );
 
   app.delete<{ Params: { aid: string; sid: string } }>(
-    '/v1/agents/:aid/sessions/:sid',
+    '/agents/:aid/sessions/:sid',
     async (req, reply) => {
       return proxyJson(
         storage,
         req.params.aid,
         'DELETE',
-        `/v1/sessions/${encodeURIComponent(req.params.sid)}`,
+        `/api/v1/sessions/${encodeURIComponent(req.params.sid)}`,
         undefined,
         reply,
       );
@@ -132,22 +132,22 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
 
   // ── Prune stale sessions ───────────────────────────────────────────
   app.delete<{ Params: { aid: string } }>(
-    '/v1/agents/:aid/sessions/prune',
+    '/agents/:aid/sessions/prune',
     async (req, reply) => {
       const queryString = req.url.split('?')[1] ?? '';
-      const upstreamPath = `/v1/sessions/prune${queryString ? `?${queryString}` : ''}`;
+      const upstreamPath = `/api/v1/sessions/prune${queryString ? `?${queryString}` : ''}`;
       return proxyJson(storage, req.params.aid, 'DELETE', upstreamPath, undefined, reply);
     },
   );
 
   app.post<{ Params: { aid: string; sid: string } }>(
-    '/v1/agents/:aid/sessions/:sid/input',
+    '/agents/:aid/sessions/:sid/input',
     async (req, reply) => {
       return proxyJson(
         storage,
         req.params.aid,
         'POST',
-        `/v1/sessions/${encodeURIComponent(req.params.sid)}/input`,
+        `/api/v1/sessions/${encodeURIComponent(req.params.sid)}/input`,
         req.body,
         reply,
       );
@@ -155,13 +155,13 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   );
 
   app.post<{ Params: { aid: string; sid: string } }>(
-    '/v1/agents/:aid/sessions/:sid/resize',
+    '/agents/:aid/sessions/:sid/resize',
     async (req, reply) => {
       return proxyJson(
         storage,
         req.params.aid,
         'POST',
-        `/v1/sessions/${encodeURIComponent(req.params.sid)}/resize`,
+        `/api/v1/sessions/${encodeURIComponent(req.params.sid)}/resize`,
         req.body,
         reply,
       );
@@ -169,11 +169,11 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   );
 
   app.get<{ Params: { aid: string; sid: string } }>(
-    '/v1/agents/:aid/sessions/:sid/output',
+    '/agents/:aid/sessions/:sid/output',
     async (req, reply) => {
       // Preserve any query params the browser sent (e.g. ?from=…).
       const queryString = req.url.split('?')[1] ?? '';
-      const upstreamPath = `/v1/sessions/${encodeURIComponent(req.params.sid)}/output${
+      const upstreamPath = `/api/v1/sessions/${encodeURIComponent(req.params.sid)}/output${
         queryString ? `?${queryString}` : ''
       }`;
       return proxyJson(storage, req.params.aid, 'GET', upstreamPath, undefined, reply);
@@ -186,7 +186,7 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   // the browser. The agent's auth token rides along in the URL, matching
   // what HttpSseTransport does on the client side.
   app.get<{ Params: { aid: string; sid: string }; Querystring: { from?: string } }>(
-    '/v1/agents/:aid/sessions/:sid/stream',
+    '/agents/:aid/sessions/:sid/stream',
     async (req: FastifyRequest<{ Params: { aid: string; sid: string }; Querystring: { from?: string } }>, reply: FastifyReply) => {
       const { aid, sid } = req.params;
       const agent = storage.getAgent(aid);
@@ -203,7 +203,7 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
       const fromParam = req.query.from != null
         ? `&from=${encodeURIComponent(String(req.query.from))}`
         : '';
-      const url = `${agent.baseUrl.replace(/\/+$/, '')}/v1/sessions/${encodeURIComponent(sid)}/stream?access_token=${encodeURIComponent(agent.token)}${fromParam}`;
+      const url = `${agent.baseUrl.replace(/\/+$/, '')}/api/v1/sessions/${encodeURIComponent(sid)}/stream?access_token=${encodeURIComponent(agent.token)}${fromParam}`;
 
       let agentRes: Response;
       try {
@@ -282,38 +282,38 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
   // We also register `/shortcuts` before the parametrized `:aid/directories`
   // listing route as a defensive measure — see task-4 brief.
   app.get<{ Params: { aid: string } }>(
-    '/v1/agents/:aid/directories/shortcuts',
+    '/agents/:aid/directories/shortcuts',
     async (req, reply) =>
-      proxyJson(storage, req.params.aid, 'GET', '/v1/directories/shortcuts', undefined, reply),
+      proxyJson(storage, req.params.aid, 'GET', '/api/v1/directories/shortcuts', undefined, reply),
   );
 
   app.get<{ Params: { aid: string } }>(
-    '/v1/agents/:aid/directories',
+    '/agents/:aid/directories',
     async (req, reply) => {
       // Preserve any query params the browser sent (e.g. ?path=…) so the
-      // upstream `/v1/directories` listing can be paged/filtered. Fastify
+      // upstream `/api/v1/directories` listing can be paged/filtered. Fastify
       // has already parsed req.query; we re-encode it via req.url to avoid
       // losing repeated or unknown keys.
       const queryString = req.url.split('?')[1] ?? '';
-      const upstreamPath = `/v1/directories${queryString ? `?${queryString}` : ''}`;
+      const upstreamPath = `/api/v1/directories${queryString ? `?${queryString}` : ''}`;
       return proxyJson(storage, req.params.aid, 'GET', upstreamPath, undefined, reply);
     },
   );
 
   app.post<{ Params: { aid: string } }>(
-    '/v1/agents/:aid/directories/favorites',
+    '/agents/:aid/directories/favorites',
     async (req, reply) =>
-      proxyJson(storage, req.params.aid, 'POST', '/v1/directories/favorites', req.body, reply),
+      proxyJson(storage, req.params.aid, 'POST', '/api/v1/directories/favorites', req.body, reply),
   );
 
   app.delete<{ Params: { aid: string; id: string } }>(
-    '/v1/agents/:aid/directories/favorites/:id',
+    '/agents/:aid/directories/favorites/:id',
     async (req, reply) =>
       proxyJson(
         storage,
         req.params.aid,
         'DELETE',
-        `/v1/directories/favorites/${encodeURIComponent(req.params.id)}`,
+        `/api/v1/directories/favorites/${encodeURIComponent(req.params.id)}`,
         undefined,
         reply,
       ),

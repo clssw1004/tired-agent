@@ -1,7 +1,7 @@
 /**
  * SSE (Server-Sent Events) streaming endpoint.
  *
- * GET /v1/sessions/:id/stream
+ * GET /sessions/:id/stream
  *
  * Emits three event types:
  *   output  — PTY bytes arrived
@@ -50,7 +50,7 @@ export function registerStreamRoute(
   cfg: Pick<ServerConfig, 'sseFormat' | 'sseDebugLog'>,
 ): void {
   app.get<{ Params: StreamParams; Querystring: StreamQuery }>(
-    '/v1/sessions/:id/stream',
+    '/sessions/:id/stream',
     { config: { raw: true } },
     async (req: FastifyRequest<{ Params: StreamParams; Querystring: StreamQuery }>, reply: FastifyReply) => {
       const { id } = req.params;

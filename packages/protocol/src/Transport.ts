@@ -6,7 +6,7 @@
  * code does not need to change.
  *
  * Each method accepts an optional `agentId`. When set, the call is routed
- * through a Manager's proxy (`/v1/agents/:aid/...`) to a specific Agent.
+ * through a Manager's proxy (under `API_PREFIX`/agents/:aid/...) to a specific Agent.
  */
 
 import type {

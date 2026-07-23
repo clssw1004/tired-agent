@@ -10,6 +10,7 @@ import cors from '@fastify/cors';
 import type { FastifyInstance } from 'fastify';
 import type { ManagerConfig } from './config.js';
 import type { Storage } from './storage.js';
+import { API_PREFIX } from '@tired-agent/protocol';
 import { registerAuth } from './auth.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerAgentRoutes } from './routes/agents.js';
@@ -40,13 +41,15 @@ export async function createApp(
 
   // ── Auth ───────────────────────────────────────────────────────────────
   // Auth must be registered before any protected route, including
-  // /v1/manager/auth/me (which is itself authenticated and just returns OK).
+  // /api/v1/manager/auth/me (which is itself authenticated and just returns OK).
   registerAuth(app, storage);
 
-  // ── Routes ─────────────────────────────────────────────────────────────
-  registerAuthRoutes(app, storage, cfg);
-  registerAgentRoutes(app, storage);
-  registerProxyRoutes(app, storage);
+  // ── API Routes (all under API_PREFIX) ──────────────────────────────────
+  app.register(async (scoped) => {
+    registerAuthRoutes(scoped, storage, cfg);
+    registerAgentRoutes(scoped, storage);
+    registerProxyRoutes(scoped, storage);
+  }, { prefix: API_PREFIX });
 
   // ── SPA host (must come last so it can install a catch-all 404) ─────────
   await registerWebRoutes(app, cfg.webDistPath);

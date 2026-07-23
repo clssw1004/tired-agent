@@ -8,6 +8,7 @@ import type { ServerConfig } from './config.js';
 import type { Storage } from './session/storage.js';
 import type { SessionManager } from './session/manager.js';
 import type { DirectoryService, DirectoryStore } from './directory/types.js';
+import { API_PREFIX } from '@tired-agent/protocol';
 import { registerAuth } from './auth.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerStreamRoute } from './routes/stream.js';
@@ -29,9 +30,13 @@ export async function createApp(
   });
 
   registerAuth(app, cfg.token);
-  registerSessionsRoutes(app, manager, storage, cfg);
-  registerStreamRoute(app, manager, storage, cfg);
-  registerDirectoryRoutes(app, directoryService, directoryStore);
+
+  // ── API Routes (all under API_PREFIX) ────────────────────────────────
+  app.register(async (scoped) => {
+    registerSessionsRoutes(scoped, manager, storage, cfg);
+    registerStreamRoute(scoped, manager, storage, cfg);
+    registerDirectoryRoutes(scoped, directoryService, directoryStore);
+  }, { prefix: API_PREFIX });
 
   // Health check (no auth required)
   app.get('/health', async (_req, reply) =>

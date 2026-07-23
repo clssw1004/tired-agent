@@ -1,13 +1,13 @@
 /**
  * Auth routes — login / refresh / logout / me.
  *
- *   POST /v1/manager/auth/login    → exchange admin token for paired
- *                                    (sessionToken, refreshToken)
- *   POST /v1/manager/auth/refresh  → single-use sliding refresh; rotates
- *                                    both tokens and slides TTLs
- *   POST /v1/manager/auth/logout   → invalidate current session (auth: bearer)
- *   GET  /v1/manager/auth/me       → confirm session is valid (auth already
- *                                    enforced by registerAuth)
+ *   POST /manager/auth/login    → exchange admin token for paired
+ *                                  (sessionToken, refreshToken)
+ *   POST /manager/auth/refresh  → single-use sliding refresh; rotates
+ *                                  both tokens and slides TTLs
+ *   POST /manager/auth/logout   → invalidate current session (auth: bearer)
+ *   GET  /manager/auth/me       → confirm session is valid (auth already
+ *                                  enforced by registerAuth)
  *
  * Login & refresh are public; registerAuth skips them. Refresh is its own
  * public path because it authenticates with a different token (the refresh
@@ -15,7 +15,7 @@
  * The handler does its own validation against `findSessionByRefreshToken`.
  */
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Storage } from '../storage.js';
 import type { ManagerConfig } from '../config.js';
@@ -29,7 +29,7 @@ export function registerAuthRoutes(
   storage: Storage,
   cfg: ManagerConfig,
 ): void {
-  app.post('/v1/manager/auth/login', async (req, reply) => {
+  app.post('/manager/auth/login', async (req, reply) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -55,7 +55,7 @@ export function registerAuthRoutes(
     });
   });
 
-  app.post('/v1/manager/auth/refresh', async (req, reply) => {
+  app.post('/manager/auth/refresh', async (req, reply) => {
     // Skip the global sessionToken hook (see comment on the export).
     const refreshToken = readBearerToken(req);
     if (!refreshToken) {
@@ -80,14 +80,14 @@ export function registerAuthRoutes(
     });
   });
 
-  app.post('/v1/manager/auth/logout', async (req, reply) => {
+  app.post('/manager/auth/logout', async (req, reply) => {
     // Auth is verified by registerAuth before we get here.
     const token = req.userToken;
     if (token) storage.deleteSession(token);
     return reply.code(200).send({ ok: true });
   });
 
-  app.get('/v1/manager/auth/me', async (req, reply) => {
+  app.get('/manager/auth/me', async (req, reply) => {
     // No body needed — the fact that we reached this handler means the
     // session was just verified. Frontend uses this on startup to detect
     // a stale/invalid token.
@@ -122,7 +122,7 @@ function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(b.charCodeAt(i));
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
 }

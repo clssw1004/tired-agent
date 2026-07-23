@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
  * Standalone Vite config for the tired-agent web SPA.
  *
- * - npm run dev   → start Vite dev server on :5173 with /v1 proxied to :8443
+ * - npm run dev   → start Vite dev server on :5173 with /api/v1 proxied to :8443
  * - npm run build → emit static files to ./dist (deployable to nginx)
  *
  * The `@tired-agent/protocol` alias points to the file:-installed package
@@ -38,7 +38,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Proxy API to the running server during `vite dev`
-      '/v1': {
+      '/api/v1': {
         target: 'http://127.0.0.1:8443',
         changeOrigin: true,
       },

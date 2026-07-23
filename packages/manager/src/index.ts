@@ -67,7 +67,7 @@ async function main(argv: string[]) {
     log.info({ host: cfg.host, port: cfg.port }, 'tired-agent manager listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
-      'Log in with: POST /v1/manager/auth/login { "token": "<token>" }',
+      'Log in with: POST /api/v1/manager/auth/login { "token": "<token>" }',
     );
   } catch (err) {
     log.fatal({ err }, 'failed to bind port');

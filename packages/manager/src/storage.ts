@@ -153,10 +153,6 @@ export function createStorage(dataDir: string): Storage {
 
       CREATE INDEX IF NOT EXISTS manager_sessions_expires
         ON manager_sessions(expiresAt);
-      CREATE INDEX IF NOT EXISTS manager_sessions_refresh_token
-        ON manager_sessions(refresh_token);
-      CREATE INDEX IF NOT EXISTS manager_sessions_refresh_expires
-        ON manager_sessions(refresh_expires_at);
     `);
     return _db;
   }

@@ -1,7 +1,7 @@
 /**
  * REST API routes for session lifecycle management.
  *
- * Base path: /v1/sessions
+ * Base path: /sessions
  *
  * Schema validation via zod on request bodies.
  * Wire-level types (Session, SessionSpec…) are re-exported from @tired-agent/protocol
@@ -54,7 +54,7 @@ export function registerSessionsRoutes(
   cfg: Pick<ServerConfig, 'sseDebugLog'>,
 ): void {
   // ── List (optional ?status=running filter) ───────────────────
-  app.get<{ Querystring: { status?: string } }>('/v1/sessions', async (req, reply) => {
+  app.get<{ Querystring: { status?: string } }>('/sessions', async (req, reply) => {
     const filter = req.query.status as SessionStatus | undefined;
     let sessions = manager.list();
     if (filter) sessions = sessions.filter((s) => s.status === filter);
@@ -62,9 +62,9 @@ export function registerSessionsRoutes(
   });
 
   // ── Bulk prune: drop DB rows + log files whose sessions are stale ───
-  //   DELETE /v1/sessions/prune?olderThanHours=24
+  //   DELETE /sessions/prune?olderThanHours=24
   app.delete<{ Querystring: { olderThanHours?: string } }>(
-    '/v1/sessions/prune',
+    '/sessions/prune',
     async (req, reply) => {
       const hours = Math.max(0, Number(req.query.olderThanHours ?? 24));
       const removed = storage.pruneOlderThan(hours * 3600 * 1000);
@@ -75,7 +75,7 @@ export function registerSessionsRoutes(
   );
 
   // ── Create ──────────────────────────────────────────────────────────────
-  app.post('/v1/sessions', async (req, reply) => {
+  app.post('/sessions', async (req, reply) => {
     const parsed = SessionSpecSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -84,10 +84,10 @@ export function registerSessionsRoutes(
     }
     try {
       const session = await manager.create(parsed.data);
-      log.info({ sessionId: session.id }, 'POST /v1/sessions → created');
+      log.info({ sessionId: session.id }, 'POST /sessions → created');
       return reply.code(201).send(session);
     } catch (err) {
-      log.error({ err }, 'POST /v1/sessions failed');
+      log.error({ err }, 'POST /sessions failed');
       return reply.code(500).send({
         error: { code: 'SPAWN_ERROR', message: (err as Error).message },
       });
@@ -95,7 +95,7 @@ export function registerSessionsRoutes(
   });
 
   // ── Get one ────────────────────────────────────────────────────────────
-  app.get<{ Params: { id: string } }>('/v1/sessions/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/sessions/:id', async (req, reply) => {
     const { id } = req.params;
     const session = manager.get(id);
     if (!session) {
@@ -107,7 +107,7 @@ export function registerSessionsRoutes(
   });
 
   // ── Kill (running) or hard-delete (already exited) ───────────────────
-  app.delete<{ Params: { id: string } }>('/v1/sessions/:id', async (req, reply) => {
+  app.delete<{ Params: { id: string } }>('/sessions/:id', async (req, reply) => {
     const { id } = req.params;
     const session = manager.get(id);
     if (!session) {
@@ -119,11 +119,11 @@ export function registerSessionsRoutes(
       if (session.status === 'exited') {
         storage.delete(id);
         manager.pruneStale();
-        log.info({ sessionId: id }, 'DELETE /v1/sessions/:id → deleted (exited)');
+        log.info({ sessionId: id }, 'DELETE /sessions/:id → deleted (exited)');
         return reply.code(204).send();
       }
       await manager.kill(id);
-      log.info({ sessionId: id }, 'DELETE /v1/sessions/:id → killed');
+      log.info({ sessionId: id }, 'DELETE /sessions/:id → killed');
       return reply.code(204).send();
     } catch (err) {
       return reply.code(500).send({
@@ -134,7 +134,7 @@ export function registerSessionsRoutes(
 
   // ── Resize ─────────────────────────────────────────────────────────────
   app.post<{ Params: { id: string } }>(
-    '/v1/sessions/:id/resize',
+    '/sessions/:id/resize',
     async (req, reply) => {
       const { id } = req.params;
       const parsed = ResizeSchema.safeParse(req.body);
@@ -162,7 +162,7 @@ export function registerSessionsRoutes(
 
   // ── Fetch historical output ────────────────────────────────────────────
   app.get<{ Params: { id: string }; Querystring: { from?: string; limit?: string } }>(
-    '/v1/sessions/:id/output',
+    '/sessions/:id/output',
     async (req, reply) => {
       const { id } = req.params;
       const session = manager.get(id);
@@ -209,7 +209,7 @@ export function registerSessionsRoutes(
 
   // ── Send input ─────────────────────────────────────────────────────────
   app.post<{ Params: { id: string } }>(
-    '/v1/sessions/:id/input',
+    '/sessions/:id/input',
     async (req, reply) => {
       const { id } = req.params;
       const session = manager.get(id);
