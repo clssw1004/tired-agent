@@ -1,7 +1,8 @@
 /**
  * Bearer-session authentication middleware.
  *
- * Every request (except the public login route, the health probe, and CORS
+ * Every request (except the public login & refresh routes, the health
+ * probe, and CORS
  * preflights) must carry `Authorization: Bearer <session-token>` or
  * `?access_token=<session-token>` (SSE EventSource cannot send headers).
  * The token is looked up in the manager_sessions table and rejected if
@@ -24,6 +25,7 @@ declare module 'fastify' {
 const PUBLIC_PATHS = new Set<string>([
   '/health',
   '/v1/manager/auth/login',
+  '/v1/manager/auth/refresh',   // refresh authenticates with refreshToken, not sessionToken
   '/v1/manager/agents/register',
 ]);
 
