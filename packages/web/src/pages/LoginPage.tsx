@@ -109,6 +109,7 @@ export function LoginPage() {
               onClick={() => {
                 localStorage.removeItem('tired-agent:manager-base-url');
                 localStorage.removeItem('tired-agent:manager-session-token');
+                localStorage.removeItem('tired-agent:manager-refresh-token');
                 window.location.reload();
               }}
             >
