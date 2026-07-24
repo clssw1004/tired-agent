@@ -39,6 +39,8 @@ export interface AgentCredentials {
   agentKey: string;
   id: string;
   token: string;
+  /** Manager base URL used for heartbeat and re-registration. */
+  managerUrl?: string;
 }
 
 // ─── Registration logic ─────────────────────────────────────────
@@ -136,8 +138,13 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
       agentBaseUrl,
       agentKey,
     );
-    await saveCredentials(cfg.dataDir, { agentKey, id: creds.id, token: creds.token });
-    return { agentKey, id: creds.id, token: creds.token };
+    await saveCredentials(cfg.dataDir, {
+      agentKey,
+      id: creds.id,
+      token: creds.token,
+      managerUrl: payload.managerUrl,
+    });
+    return { agentKey, id: creds.id, token: creds.token, managerUrl: payload.managerUrl };
   }
 
   // 3. No register string — use saved credentials if available.

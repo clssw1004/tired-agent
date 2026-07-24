@@ -14,9 +14,11 @@ export function registerShutdown(
   app: FastifyInstance,
   storage: Storage,
   manager: SessionManager,
+  cleanup?: () => void,
 ): void {
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutdown signal received');
+    cleanup?.();
     manager.stopCleanupTimer();
     await app.close();
     await storage.close();

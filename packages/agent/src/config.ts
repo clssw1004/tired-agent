@@ -5,6 +5,7 @@
 
 import { resolve, join } from 'node:path';
 import { homedir, hostname } from 'node:os';
+import { readFileSync } from 'node:fs';
 
 /** Default data directory: ~/.tiredagent */
 const DEFAULT_DATA_DIR = join(homedir(), '.tiredagent');
@@ -30,6 +31,10 @@ export interface ServerConfig {
   name: string;
   /** Base64-encoded registration string for manager auto-registration. */
   registerString: string | null;
+  /** Agent ID assigned by the manager during registration. */
+  agentId?: string;
+  /** Manager base URL for heartbeat and management. */
+  managerUrl?: string;
 }
 
 function parseInt10(value: string | undefined, fallback: number): number {
@@ -83,7 +88,7 @@ export function loadConfig(argv: string[]): ServerConfig {
   const defaultHost = registerString ? '0.0.0.0' : '127.0.0.1';
   const dataDir = cli.dataDir ? resolve(cli.dataDir) : resolve(env.CLSSW_DATA ?? DEFAULT_DATA_DIR);
 
-  return {
+  const cfg: ServerConfig = {
     port: cli.port ?? parseInt10(env.PORT, 8444),
     host: cli.host ?? env.HOST ?? defaultHost,
     token: cli.token ?? env.CLSSW_TOKEN ?? '',
@@ -95,6 +100,22 @@ export function loadConfig(argv: string[]): ServerConfig {
     name: cli.name || env.CLSSW_AGENT_NAME || hostname(),
     registerString,
   };
+
+  // Read persisted credentials to populate agentId and managerUrl.
+  // This allows the heartbeat to find the manager even if the agent was
+  // registered in a previous session.
+  const credentialsPath = join(dataDir, '.agent-credentials');
+  try {
+    const credsRaw = readFileSync(credentialsPath, 'utf-8');
+    const creds = JSON.parse(credsRaw);
+    if (creds.managerUrl) cfg.managerUrl = creds.managerUrl;
+    if (creds.agentId || creds.id) cfg.agentId = creds.agentId ?? creds.id;
+    if (creds.token && !cli.token && !env.CLSSW_TOKEN) cfg.token = creds.token;
+  } catch {
+    // No credentials file — agent is not registered with a manager.
+  }
+
+  return cfg;
 }
 
 /** Throw a clear error if the configuration is unusable. */
