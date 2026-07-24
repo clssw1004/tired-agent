@@ -24,6 +24,7 @@ loadDotenv({ path: resolve(__dirname, '../.env') });
 
 import { loadConfig, validateConfig } from './config.js';
 import { createStorage } from './storage.js';
+import { HeartbeatTracker } from './heartbeat.js';
 import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
 import { log } from './util/log.js';
@@ -50,7 +51,9 @@ async function main(argv: string[]) {
   await storage.init();
   log.info({ dataDir: cfg.dataDir }, 'storage initialized');
 
-  const app = await createApp(cfg, storage);
+  const heartbeatTracker = new HeartbeatTracker();
+
+  const app = await createApp(cfg, storage, heartbeatTracker);
 
   // Process-level error logs (prevent crash, log only).
   process.on('uncaughtException', (err) => {
