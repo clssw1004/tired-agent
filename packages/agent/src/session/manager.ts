@@ -184,7 +184,9 @@ export class SessionManager {
   list(): SessionRecord[] {
     const byId = new Map<string, SessionRecord>();
     for (const rec of this.storage.list()) byId.set(rec.id, rec);
-    for (const [id, s] of live) byId.set(id, s.record);
+    for (const [id, s] of live) {
+      if (s.record) byId.set(id, s.record);
+    }
     return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
