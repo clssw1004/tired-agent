@@ -28,6 +28,7 @@ const PUBLIC_PATHS = new Set<string>([
   `${API_PREFIX}/manager/auth/login`,
   `${API_PREFIX}/manager/auth/refresh`,   // refresh authenticates with refreshToken, not sessionToken
   `${API_PREFIX}/manager/agents/register`,
+  `${API_PREFIX}/manager/heartbeat`,
 ]);
 
 export function registerAuth(app: FastifyInstance, storage: Storage): void {

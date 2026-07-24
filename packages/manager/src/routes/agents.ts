@@ -29,6 +29,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Storage } from '../storage.js';
+import type { HeartbeatTracker } from '../heartbeat.js';
+import type { HeartbeatRequest } from '@tired-agent/protocol';
 
 const AddAgentSchema = z.object({
   name: z.string().min(1),
@@ -43,18 +45,18 @@ const RegisterAgentSchema = z.object({
   agentKey: z.string().optional(),
 });
 
-export function registerAgentRoutes(app: FastifyInstance, storage: Storage): void {
+export function registerAgentRoutes(app: FastifyInstance, storage: Storage, heartbeatTracker: HeartbeatTracker): void {
   app.get('/manager/agents', async (_req, reply) => {
     const agents = storage.listAgents();
-    return reply.code(200).send(
-      agents.map((a) => ({
-        id: a.id,
-        name: a.name,
-        baseUrl: a.baseUrl,
-        enabled: a.enabled,
-        createdAt: a.createdAt,
-      })),
-    );
+    const mapped = agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      baseUrl: a.baseUrl,
+      enabled: a.enabled,
+      createdAt: a.createdAt,
+    }));
+    const enriched = heartbeatTracker.enrichAgents(mapped);
+    return reply.code(200).send(enriched);
   });
 
   app.post('/manager/agents', async (req, reply) => {
@@ -102,4 +104,43 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
       return reply.code(200).send({ ok: true });
     },
   );
+
+  // ── Heartbeat (public) ────────────────────────────────────────────
+  app.post('/manager/heartbeat', async (req, reply) => {
+    // 1. Extract token from Authorization header
+    const header = req.headers['authorization'] ?? '';
+    let token = '';
+    if (header.toLowerCase().startsWith('bearer ')) {
+      token = header.slice(7).trim();
+    }
+    if (!token) {
+      return reply.code(401).send({
+        error: { code: 'unauthorized', message: 'missing bearer token' },
+      });
+    }
+
+    // 2. Find agent by token
+    const agent = storage.findAgentByToken(token);
+    if (!agent) {
+      return reply.code(401).send({
+        error: { code: 'unauthorized', message: 'invalid agent token' },
+      });
+    }
+
+    // 3. Parse body and record heartbeat
+    const body = req.body as HeartbeatRequest | undefined;
+    heartbeatTracker.beat(agent.id, {
+      version: body?.version,
+      hostname: body?.hostname,
+      uptime: body?.uptime,
+      remoteAddress: req.ip,
+    });
+
+    // 4. Response
+    return reply.code(200).send({
+      status: 'ok' as const,
+      ts: Date.now(),
+      managerVersion: '0.1.19',
+    });
+  });
 }

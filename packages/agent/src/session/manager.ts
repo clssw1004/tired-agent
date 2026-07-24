@@ -489,6 +489,9 @@ export class SessionManager {
     const grace = SessionManager.CLEANUP_GRACE_MS;
     let removed = 0;
     for (const [id, s] of live) {
+      // Defensive: skip sessions with partial state (shouldn't happen but
+      // protects against edge cases during create/reconcile).
+      if (!s.record) continue;
       // Don't prune structured sessions (they stay until explicitly killed).
       if (s.record.mode === 'persistent') continue;
       if (s.record.status === 'exited'
