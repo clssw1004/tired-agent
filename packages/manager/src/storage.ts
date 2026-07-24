@@ -70,6 +70,8 @@ export interface Storage {
   findAgentByKey(agentKey: string): Agent | undefined;
   /** Look up an agent by its `baseUrl` (fallback dedup when agentKey is missing). */
   findAgentByBaseUrl(baseUrl: string): Agent | undefined;
+  /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
+  findAgentByToken(token: string): Agent | undefined;
   /**
    * Register (or re-register) an agent.
    *
@@ -296,6 +298,15 @@ export function createStorage(dataDir: string): Storage {
     return { id: newId, token };
   }
 
+  /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
+  function findAgentByToken(token: string): Agent | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = db()
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE token = ?')
+      .get(token);
+    return row ? deserializeAgent(row) : undefined;
+  }
+
   // ── sessions ────────────────────────────────────────────────────────────
 
   function createSession(sessionTtlMs: number, refreshTtlMs: number): Session {
@@ -435,6 +446,7 @@ export function createStorage(dataDir: string): Storage {
     deleteAgent,
     findAgentByKey,
     findAgentByBaseUrl,
+    findAgentByToken,
     registerAgent,
     createSession,
     getSession,
