@@ -30,6 +30,13 @@ export interface AgentSummary {
   id: string;
   name: string;
   baseUrl: string;
+  state?: 'online' | 'offline' | 'unknown';
+  lastSeen?: number | null;
+  version?: string | null;
+  hostname?: string | null;
+  agentUptime?: number | null;
+  beatCount?: number;
+  remoteAddress?: string | null;
 }
 
 export type AuthStatus =
