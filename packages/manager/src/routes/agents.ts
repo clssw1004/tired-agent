@@ -101,6 +101,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage, hear
         });
       }
       storage.deleteAgent(req.params.id);
+      heartbeatTracker.removeAgent(req.params.id);
       return reply.code(200).send({ ok: true });
     },
   );
