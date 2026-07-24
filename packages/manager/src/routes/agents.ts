@@ -56,6 +56,33 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage, hear
       createdAt: a.createdAt,
     }));
     const enriched = heartbeatTracker.enrichAgents(mapped);
+
+    // ── Probe unknown agents directly ──────────────────────────────────
+    // For agents that have never sent a heartbeat (e.g. manually added),
+    // actively check their /health endpoint. Manager→agent is always
+    // reachable (the manager has the agent's baseUrl from the DB).
+    const unknownAgents = enriched.filter((a) => a.state === 'unknown');
+    if (unknownAgents.length > 0) {
+      await Promise.allSettled(
+        unknownAgents.map(async (agent) => {
+          try {
+            const url = `${agent.baseUrl.replace(/\/+$/, '')}/health`;
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            if (res.ok) {
+              // Record a virtual heartbeat so subsequent calls use the cache.
+              heartbeatTracker.beat(agent.id, {});
+              agent.state = 'online';
+              agent.lastSeen = Date.now();
+            } else {
+              agent.state = 'offline';
+            }
+          } catch {
+            agent.state = 'offline';
+          }
+        }),
+      );
+    }
+
     return reply.code(200).send(enriched);
   });
 
