@@ -5,7 +5,7 @@
 
 export * from './types.js';
 export * from './Transport.js';
-export { API_PREFIX } from './constants.js';
+export { API_PREFIX, HEARTBEAT_PATH } from './constants.js';
 export {
   HttpSseTransport,
   createHttpSseTransport,
