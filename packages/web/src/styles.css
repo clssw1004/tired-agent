@@ -286,6 +286,27 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .card-meta { color: var(--text-dim); font-size: 12px; margin-top: 3px; word-break: break-all; }
 .card-actions { display: flex; gap: 6px; }
 
+/* ── Server card status ──────────────────────────── */
+.server-card-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.server-state-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.server-state-online  { background: #51cf66; box-shadow: 0 0 4px rgba(81,207,102,0.5); }
+.server-state-offline { background: #ff6b6b; }
+.server-state-unknown { background: #6c6c80; }
+.server-state-label { color: var(--text-secondary, #888); }
+.server-version { color: var(--text-secondary, #888); margin-left: auto; }
+
 /* ── Status badges (pill labels) ───────────────────────────────────── */
 .badge {
   display: inline-flex;
