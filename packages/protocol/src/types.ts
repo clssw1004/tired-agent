@@ -359,3 +359,20 @@ export interface ErrorResponse {
     message: string;
   };
 }
+
+/** Heartbeat request payload sent by agent to manager. */
+export interface HeartbeatRequest {
+  /** Agent 软件版本, e.g. "0.1.19" */
+  version?: string;
+  /** Agent 主机名 */
+  hostname?: string;
+  /** Agent 进程已运行秒数 (process.uptime()) */
+  uptime?: number;
+}
+
+/** Heartbeat response from manager. */
+export interface HeartbeatResponse {
+  status: 'ok';
+  ts: number;
+  managerVersion: string;
+}
