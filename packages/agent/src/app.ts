@@ -16,6 +16,7 @@ import { registerDirectoryRoutes } from './routes/directories.js';
 import { log, initLogger } from './util/log.js';
 import { config as loadDotenv } from 'dotenv';
 import { join } from 'node:path';
+import { platform, arch, release } from 'node:os';
 
 export async function createApp(
   cfg: ServerConfig,
@@ -40,7 +41,13 @@ export async function createApp(
 
   // Health check (no auth required)
   app.get('/health', async (_req, reply) =>
-    reply.code(200).send({ status: 'ok', name: cfg.name, port: cfg.port, ts: Date.now() }),
+    reply.code(200).send({
+      status: 'ok',
+      name: cfg.name,
+      port: cfg.port,
+      ts: Date.now(),
+      platform: { os: platform(), arch: arch(), release: release() },
+    }),
   );
 
   // Global error handler — never crash on a single request
