@@ -240,7 +240,7 @@ export function createStorage(dataDir: string): Storage {
   function listAgents(): Agent[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents ORDER BY createdAt ASC')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents ORDER BY createdAt ASC')
       .all();
     return rows.map(deserializeAgent);
   }
@@ -248,7 +248,7 @@ export function createStorage(dataDir: string): Storage {
   function getAgent(id: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE id = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE id = ?')
       .get(id);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -257,8 +257,8 @@ export function createStorage(dataDir: string): Storage {
     const id = randomUUID();
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?)',
-    ).run(id, '', name, baseUrl, token, createdAt);
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)',
+    ).run(id, '', name, baseUrl, token, createdAt, 'pending', '', '', '');
     return { id };
   }
 
@@ -271,7 +271,7 @@ export function createStorage(dataDir: string): Storage {
   function findAgentByKey(agentKey: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE agent_key = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE agent_key = ?')
       .get(agentKey);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -284,7 +284,7 @@ export function createStorage(dataDir: string): Storage {
   function findAgentByBaseUrl(baseUrl: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE baseUrl = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE baseUrl = ?')
       .get(baseUrl);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -346,7 +346,7 @@ export function createStorage(dataDir: string): Storage {
   function findAgentByToken(token: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt FROM manager_agents WHERE token = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE token = ?')
       .get(token);
     return row ? deserializeAgent(row) : undefined;
   }

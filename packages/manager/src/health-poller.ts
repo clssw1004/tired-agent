@@ -23,6 +23,7 @@ export class HealthPoller {
   private storage: Storage;
   private intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private stopped = false;
 
   constructor(storage: Storage, intervalMs: number = DEFAULT_INTERVAL_MS) {
     this.storage = storage;
@@ -39,6 +40,7 @@ export class HealthPoller {
 
   /** Stop the polling loop. */
   stop(): void {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -53,6 +55,7 @@ export class HealthPoller {
 
     await Promise.allSettled(
       agents.map(async (agent) => {
+        if (this.stopped) return;
         try {
           const baseUrl = agent.baseUrl.replace(/\/+$/, '');
           const url = `${baseUrl}/health`;
@@ -67,6 +70,7 @@ export class HealthPoller {
 
             // Update platform from health response (may be richer than registration data)
             if (body.platform) {
+              if (this.stopped) return;
               this.storage.updateAgentPlatform(
                 agent.id,
                 body.platform.os,
@@ -77,12 +81,14 @@ export class HealthPoller {
 
             // Transition to online (idempotent)
             if (agent.status !== 'online') {
+              if (this.stopped) return;
               this.storage.updateAgentStatus(agent.id, 'online');
               log.info({ agentId: agent.id, name: agent.name }, 'health-poller: agent online');
             }
           } else {
             // Agent returned non-2xx
             if (agent.status !== 'offline') {
+              if (this.stopped) return;
               this.storage.updateAgentStatus(agent.id, 'offline');
               log.warn({ agentId: agent.id, name: agent.name, status: res.status }, 'health-poller: agent unhealthy');
             }
@@ -90,6 +96,7 @@ export class HealthPoller {
         } catch (err) {
           // Network error or timeout
           if (agent.status !== 'offline') {
+            if (this.stopped) return;
             this.storage.updateAgentStatus(agent.id, 'offline');
             log.warn({ agentId: agent.id, name: agent.name, err: (err as Error).message }, 'health-poller: agent unreachable');
           }

@@ -440,13 +440,10 @@ export class HttpSseTransport implements Transport {
 
   async listAgents(ref: ServerRef): Promise<{
     id: string; name: string; baseUrl: string;
-    state?: 'online' | 'offline' | 'unknown';
-    lastSeen?: number | null;
-    version?: string | null;
-    hostname?: string | null;
-    agentUptime?: number | null;
-    beatCount?: number;
-    remoteAddress?: string | null;
+    enabled: boolean;
+    createdAt: number;
+    status: string;
+    platform?: { os: string; arch: string; release: string } | undefined;
   }[]> {
     const res = await this.fetchImpl(`${ensureBaseUrl(ref)}${API_PREFIX}/manager/agents`, {
       headers: authHeaders(ref),
@@ -454,13 +451,10 @@ export class HttpSseTransport implements Transport {
     await checkOk(res, 'listAgents');
     return (await res.json()) as {
       id: string; name: string; baseUrl: string;
-      state?: 'online' | 'offline' | 'unknown';
-      lastSeen?: number | null;
-      version?: string | null;
-      hostname?: string | null;
-      agentUptime?: number | null;
-      beatCount?: number;
-      remoteAddress?: string | null;
+      enabled: boolean;
+      createdAt: number;
+      status: string;
+      platform?: { os: string; arch: string; release: string } | undefined;
     }[];
   }
 
