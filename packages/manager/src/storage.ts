@@ -39,6 +39,11 @@ export interface Agent {
   token: string;
   enabled: boolean;
   createdAt: number;
+  /** 注册状态：pending | online | offline */
+  status: string;
+  platformOs: string;
+  platformArch: string;
+  platformRelease: string;
 }
 
 /**
@@ -83,7 +88,16 @@ export interface Storage {
    * updated in place (token also preserved). Without either match a fresh
    * entry with a new token is created.
    */
-  registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string };
+  registerAgent(
+    name: string,
+    baseUrl: string,
+    agentKey?: string,
+    platform?: { os: string; arch: string; release: string },
+  ): { id: string; token: string; status: string };
+  /** Update the agent's online/offline/pending status. */
+  updateAgentStatus(id: string, status: string): void;
+  /** Update the agent's platform info (OS, arch, release). */
+  updateAgentPlatform(id: string, os: string, arch: string, release: string): void;
   // ── sessions ──
   createSession(sessionTtlMs: number, refreshTtlMs: number): Session;
   /** Return session if `token` is the active sessionToken and not expired. */
@@ -139,7 +153,11 @@ export function createStorage(dataDir: string): Storage {
         baseUrl     TEXT NOT NULL,
         token       TEXT NOT NULL,
         enabled     INTEGER NOT NULL DEFAULT 1,
-        createdAt   INTEGER NOT NULL
+        createdAt   INTEGER NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        platform_os     TEXT NOT NULL DEFAULT '',
+        platform_arch   TEXT NOT NULL DEFAULT '',
+        platform_release TEXT NOT NULL DEFAULT ''
       );
 
       CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key);
@@ -204,6 +222,17 @@ export function createStorage(dataDir: string): Storage {
         `CREATE INDEX IF NOT EXISTS manager_sessions_refresh_expires ON manager_sessions(refresh_expires_at)`,
       );
     }
+
+    // Migration: add status and platform columns
+    const hasStatus = handle
+      .prepare("SELECT 1 FROM pragma_table_info('manager_agents') WHERE name = 'status'")
+      .get();
+    if (!hasStatus) {
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_os TEXT NOT NULL DEFAULT ''`);
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_arch TEXT NOT NULL DEFAULT ''`);
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_release TEXT NOT NULL DEFAULT ''`);
+    }
   }
 
   // ── agents ──────────────────────────────────────────────────────────────
@@ -260,7 +289,12 @@ export function createStorage(dataDir: string): Storage {
     return row ? deserializeAgent(row) : undefined;
   }
 
-  function registerAgent(name: string, baseUrl: string, agentKey?: string): { id: string; token: string } {
+  function registerAgent(
+    name: string,
+    baseUrl: string,
+    agentKey?: string,
+    platform?: { os: string; arch: string; release: string },
+  ): { id: string; token: string; status: string } {
     // Re-registration: prefer agentKey (stable across restarts).
     if (agentKey) {
       const existing = findAgentByKey(agentKey);
@@ -270,9 +304,9 @@ export function createStorage(dataDir: string): Storage {
         // (e.g. an agent restart) would lock out previously-connected
         // managers/clients. Only refresh baseUrl + name.
         db().prepare(
-          'UPDATE manager_agents SET baseUrl = ?, name = ? WHERE agent_key = ?',
-        ).run(baseUrl, name, agentKey);
-        return { id: existing.id, token: existing.token };
+          'UPDATE manager_agents SET baseUrl = ?, name = ?, platform_os = ?, platform_arch = ?, platform_release = ? WHERE agent_key = ?',
+        ).run(baseUrl, name, platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '', agentKey);
+        return { id: existing.id, token: existing.token, status: existing.status };
       }
     }
 
@@ -282,9 +316,9 @@ export function createStorage(dataDir: string): Storage {
     const sameUrl = findAgentByBaseUrl(baseUrl);
     if (sameUrl) {
       db().prepare(
-        'UPDATE manager_agents SET name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key) WHERE id = ?',
-      ).run(name, agentKey ?? '', sameUrl.id);
-      return { id: sameUrl.id, token: sameUrl.token };
+        'UPDATE manager_agents SET name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key), platform_os = ?, platform_arch = ?, platform_release = ? WHERE id = ?',
+      ).run(name, agentKey ?? '', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '', sameUrl.id);
+      return { id: sameUrl.id, token: sameUrl.token, status: sameUrl.status };
     }
 
     // First registration: create fresh.
@@ -293,9 +327,19 @@ export function createStorage(dataDir: string): Storage {
     const agentKeyFinal = agentKey ?? '';
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?)',
-    ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt);
-    return { id: newId, token };
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)',
+    ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt, 'pending', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '');
+    return { id: newId, token, status: 'pending' };
+  }
+
+  function updateAgentStatus(id: string, status: string): void {
+    db().prepare('UPDATE manager_agents SET status = ? WHERE id = ?').run(status, id);
+  }
+
+  function updateAgentPlatform(id: string, os: string, arch: string, release: string): void {
+    db().prepare(
+      'UPDATE manager_agents SET platform_os = ?, platform_arch = ?, platform_release = ? WHERE id = ?',
+    ).run(os, arch, release, id);
   }
 
   /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
@@ -435,6 +479,10 @@ export function createStorage(dataDir: string): Storage {
       token: r.token,
       enabled: Boolean(r.enabled),
       createdAt: Number(r.createdAt),
+      status: r.status ?? 'pending',
+      platformOs: r.platform_os ?? '',
+      platformArch: r.platform_arch ?? '',
+      platformRelease: r.platform_release ?? '',
     };
   }
 
@@ -448,6 +496,8 @@ export function createStorage(dataDir: string): Storage {
     findAgentByBaseUrl,
     findAgentByToken,
     registerAgent,
+    updateAgentStatus,
+    updateAgentPlatform,
     createSession,
     getSession,
     findSessionByRefreshToken,
