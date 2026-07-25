@@ -186,7 +186,7 @@ export function detectLanIp(): string {
     }
   }
 
-  if (candidates.length > 0) return candidates[0];
+  if (candidates.length > 0) return candidates[0]!;
 
   throw new Error(
     '无法自动检测可用的非回环 IP 地址。请通过 --host 参数手动指定广告 IP。',
@@ -215,7 +215,7 @@ function detectBestLanIp(managerHost: string): Promise<string | null> {
 
     sock.connect(1, managerHost, () => {
       clearTimeout(timeout);
-      const ip = sock.localAddress;
+      const ip = (sock.address() as { address: string }).address;
       sock.close();
       resolve(ip || null);
     });
