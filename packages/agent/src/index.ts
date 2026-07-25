@@ -12,7 +12,7 @@ import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 
 // Load .env when invoked directly (e.g. `node dist/index.js`).
 // When invoked via cli.ts, dotenv is already loaded — this is harmless.
@@ -29,7 +29,6 @@ import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
 import { log, initLogger } from './util/log.js';
 import { getOrRegisterCredentials } from './register.js';
-import { startHeartbeat } from './heartbeat.js';
 import type { StorageKind } from './session/storage.js';
 import { createDirectoryStore } from './directory/store.js';
 import { createDirectoryService } from './directory/service.js';
@@ -141,12 +140,8 @@ export async function main(cfg: ServerConfig) {
 
   const app = await createApp(cfg, storage, manager, directoryService, directoryStore);
 
-  // Mutable reference so the heartbeat stop function can be set after
-  // registerShutdown captures it (heartbeat starts after app.listen).
-  let stopHeartbeat: (() => void) | undefined;
-
   registerShutdown(app, storage, manager, () => {
-    stopHeartbeat?.();
+    // No heartbeat to stop
   });
 
   try {
@@ -157,25 +152,6 @@ export async function main(cfg: ServerConfig) {
       'Connect with: Authorization: Bearer <token>',
     );
 
-    // Start heartbeat if the agent is registered with a Manager.
-    const credentialsPath = join(cfg.dataDir, '.agent-credentials');
-    try {
-      const credsRaw = readFileSync(credentialsPath, 'utf-8');
-      const creds = JSON.parse(credsRaw);
-
-      if (creds.managerUrl && creds.id) {
-        log.info({ managerUrl: creds.managerUrl, agentId: creds.id }, 'starting heartbeat');
-        stopHeartbeat = startHeartbeat({
-          managerUrl: creds.managerUrl,
-          agentId: creds.id,
-          token: creds.token,
-          name: cfg.name,
-          version: '0.1.19',
-        });
-      }
-    } catch {
-      // Not registered with a manager — skip heartbeat.
-    }
   } catch (err) {
     log.fatal({ err }, 'failed to bind port');
     await storage.close();
