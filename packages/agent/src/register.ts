@@ -17,7 +17,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, arch, release } from 'node:os';
 import type { ServerConfig } from './config.js';
 import { API_PREFIX } from '@tired-agent/protocol';
 
@@ -87,15 +87,17 @@ export async function registerWithManager(
   name: string,
   agentBaseUrl: string,
   agentKey?: string,
+  platform?: { os: string; arch: string; release: string },
 ): Promise<{ id: string; token: string }> {
   const base = managerUrl.replace(/\/+$/, '');
   const url = `${base}${API_PREFIX}/manager/agents/register`;
 
-  const body: Record<string, string> = {
+  const body: Record<string, string | object> = {
     name,
     baseUrl: agentBaseUrl,
   };
   if (agentKey) body.agentKey = agentKey;
+  if (platform) body.platform = platform;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -132,11 +134,13 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
     // IPv4 so the manager can actually reach us.
     const advertiseHost = cfg.host === '0.0.0.0' ? detectLanIp() : cfg.host;
     const agentBaseUrl = `http://${advertiseHost}:${cfg.port}`;
+    const platform = { os: process.platform, arch: arch(), release: release() };
     const creds = await registerWithManager(
       payload.managerUrl,
       cfg.name,
       agentBaseUrl,
       agentKey,
+      platform,
     );
     await saveCredentials(cfg.dataDir, {
       agentKey,
