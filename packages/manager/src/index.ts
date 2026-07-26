@@ -69,7 +69,7 @@ async function main(argv: string[]) {
   });
 
   try {
-    await app.listen({ port: cfg.port, host: cfg.host, reuseAddr: true });
+    await app.listen({ port: cfg.port, host: cfg.host });
     log.info({ host: cfg.host, port: cfg.port }, 'tired-agent manager listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
@@ -82,7 +82,7 @@ async function main(argv: string[]) {
       log.warn('port in use, retrying in 1s…');
       await new Promise((r) => setTimeout(r, 1000));
       try {
-        await app.listen({ port: cfg.port, host: cfg.host, reuseAddr: true });
+        await app.listen({ port: cfg.port, host: cfg.host });
       } catch (retryErr) {
         log.fatal({ err: retryErr }, 'failed to bind port after retry');
         await storage.close();
