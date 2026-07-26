@@ -200,8 +200,11 @@ export class SessionManager {
       subscribers: new Set(),
     };
     live.set(id, liveSession);
+    this.storage.update({ id, status: 'running' });
+    const updated = this.storage.get(id)!;
+    liveSession.record = updated;
     log.info({ sessionId: id, cmd: record.cmd, mode: 'persistent' }, 'persistent session created');
-    return record;
+    return updated;
   }
 
   /**
