@@ -145,7 +145,7 @@ export async function main(cfg: ServerConfig) {
   });
 
   try {
-    await app.listen({ port: cfg.port, host: cfg.host });
+    await app.listen({ port: cfg.port, host: cfg.host, reuseAddr: true });
     log.info({ host: cfg.host, port: cfg.port }, 'tired-agent agent listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
