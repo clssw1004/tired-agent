@@ -15,8 +15,16 @@ import { registerStreamRoute } from './routes/stream.js';
 import { registerDirectoryRoutes } from './routes/directories.js';
 import { log, initLogger } from './util/log.js';
 import { config as loadDotenv } from 'dotenv';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { platform, arch, release } from 'node:os';
+import { readFileSync } from 'node:fs';
+
+// Read version from package.json at module load time
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const AGENT_VERSION: string = JSON.parse(
+  readFileSync(join(__dirname, '../package.json'), 'utf-8'),
+).version ?? '0.0.0';
 
 export async function createApp(
   cfg: ServerConfig,
@@ -46,6 +54,8 @@ export async function createApp(
       name: cfg.name,
       port: cfg.port,
       ts: Date.now(),
+      version: AGENT_VERSION,
+      uptime: Math.floor(process.uptime()),
       platform: { os: platform(), arch: arch(), release: release() },
     }),
   );

@@ -65,8 +65,15 @@ export class HealthPoller {
 
           if (res.ok) {
             const body = await res.json() as {
+              version?: string;
               platform?: { os: string; arch: string; release: string };
             };
+
+            // Update agent version from health response
+            if (body.version) {
+              if (this.stopped) return;
+              this.storage.updateAgentVersion(agent.id, body.version);
+            }
 
             // Update platform from health response (may be richer than registration data)
             if (body.platform) {
