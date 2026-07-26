@@ -1,27 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { ServerRef, SessionMode } from '@tired-agent/protocol';
 import { useServerList } from '../store/ServerContext';
 import { transport } from '../api/transport';
 import { useToast } from '../components/Toast';
 import { DirectoryPickerModal } from '../components/DirectoryPickerModal';
-
-interface ArgumentOption {
-  id: string;
-  label: string;
-  args: string[];
-  hint: string;
-}
-
-interface Preset {
-  id: string;
-  label: string;
-  cmd: string;
-  args: string[];
-  hint: string;
-  emoji: string;
-  options?: ArgumentOption[];
-}
 
 // 32-char unambiguous alphabet: drops 0/1/l/o which are easy to misread or
 // confuse. Combined with the local timestamp the label is essentially unique
@@ -50,34 +33,6 @@ function generateDefaultLabel(): string {
   return `${rnd}_${stamp}`;
 }
 
-// Common interactive shells / REPLs the user might want to start. Tapping a
-// preset populates the form so they don't have to remember the command.
-// Each preset may expose common argument shortcuts as toggleable chips.
-const PRESETS: Preset[] = [
-  { id: 'claude', label: 'Claude', cmd: 'claude', args: [], hint: 'Anthropic Claude Code CLI', emoji: '✦' },
-  { id: 'bash', label: 'Bash', cmd: 'bash', args: [], hint: 'POSIX shell', emoji: '$', options: [
-    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
-    { id: 'login', label: 'Login', args: ['-l'], hint: 'Start as a login shell' },
-  ] },
-  { id: 'zsh', label: 'Zsh', cmd: 'zsh', args: [], hint: 'Z shell', emoji: '$', options: [
-    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
-    { id: 'login', label: 'Login', args: ['-l'], hint: 'Start as a login shell' },
-  ] },
-  { id: 'cmd', label: 'cmd.exe', cmd: 'cmd.exe', args: [], hint: 'Windows command prompt', emoji: '>', options: [
-    { id: 'no-auto-run', label: 'No AutoRun', args: ['/d'], hint: 'Disable AutoRun commands' },
-  ] },
-  { id: 'powershell', label: 'PowerShell', cmd: 'powershell.exe', args: [], hint: 'Windows PowerShell', emoji: '>', options: [
-    { id: 'no-logo', label: 'No logo', args: ['-NoLogo'], hint: 'Hide startup logo' },
-    { id: 'no-profile', label: 'No profile', args: ['-NoProfile'], hint: 'Skip profile scripts' },
-  ] },
-  { id: 'python', label: 'Python', cmd: 'python3', args: ['-i'], hint: 'Interactive Python REPL', emoji: '🐍', options: [
-    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
-  ] },
-  { id: 'node', label: 'Node', cmd: 'node', args: [], hint: 'Node.js REPL', emoji: '⬢', options: [
-    { id: 'interactive', label: 'Interactive', args: ['-i'], hint: 'Force interactive mode' },
-  ] },
-];
-
 export function SessionCreatePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -92,7 +47,6 @@ export function SessionCreatePage() {
   const [label, setLabel] = useState('');
   const [cwd, setCwd] = useState('');
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
-  const [activeOptionIds, setActiveOptionIds] = useState<string[]>([]);
   // Terminal size is fixed at 80×24 as a sane PTY bootstrap. The web side
   // (PtySessionView) auto-syncs the actual cols/rows to the browser
   // viewport via POST /v1/sessions/:id/resize, so this initial value only
@@ -102,35 +56,6 @@ export function SessionCreatePage() {
   const [mode, setMode] = useState<SessionMode>('process');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Single source of truth for arguments:
-  //   - `args` state holds ONLY the user's manually typed extra arguments.
-  //   - preset default args + active option chips flow through `effectiveArgs`.
-  // This keeps preset/chip args from ever being duplicated into the manual box.
-  const selectedPreset = PRESETS.find((preset) => preset.cmd === cmd);
-  const selectedOptionArgs = (selectedPreset?.options ?? [])
-    .filter((option) => activeOptionIds.includes(option.id))
-    .flatMap((option) => option.args);
-  const effectiveArgs = [...(selectedPreset?.args ?? []), ...selectedOptionArgs];
-
-  const commandPreview = useMemo(() => {
-    const c = cmd.trim();
-    if (!c) return '';
-    const manualArgs = args.trim() ? args.trim().split(/\s+/) : [];
-    const tokens = [c, ...effectiveArgs, ...manualArgs];
-    return tokens.join(' ');
-  }, [cmd, args, effectiveArgs]);
-
-  const applyPreset = (p: Preset) => {
-    setCmd(p.cmd);
-    // Preset defaults live in `effectiveArgs`, never in the manual box.
-    // Reset manual args + chips so we don't re-send stale defaults.
-    setArgs('');
-    setActiveOptionIds([]);
-    setLabel('');
-    // Claude preset auto-selects structured mode; other presets use PTY.
-    setMode(p.cmd === 'claude' ? 'persistent' : 'process');
-  };
 
   // When command changes away from claude, persistent mode is unavailable.
   // Auto-switch to process mode so the user doesn't accidentally create a
@@ -154,10 +79,7 @@ export function SessionCreatePage() {
     }
     setLoading(true);
     try {
-      // Assemble in a stable order: preset defaults → chip args → manual args.
-      // `effectiveArgs` never overlaps the manual box, so no duplicates.
       const manualArgs = args.trim() ? args.trim().split(/\s+/) : [];
-      const finalArgs = [...effectiveArgs, ...manualArgs];
       const serverRef: ServerRef = {
         id: server.id,
         name: server.name,
@@ -168,7 +90,7 @@ export function SessionCreatePage() {
         serverRef,
         {
           cmd: cmd.trim(),
-          args: finalArgs,
+          args: manualArgs,
           cwd: cwd.trim() || undefined,
           // Auto-generate a memorable, unique label when the user leaves the
           // field empty — otherwise SessionCard rows are visually identical
@@ -221,27 +143,6 @@ export function SessionCreatePage() {
 
         <div className="form-card">
           <div className="form-section">
-            <div className="form-section-label">Quick start</div>
-            <div className="preset-grid">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={
-                    'preset-tile' +
-                    (cmd === p.cmd ? ' is-active' : '')
-                  }
-                  onClick={() => applyPreset(p)}
-                  title={p.hint}
-                >
-                  <span className="preset-emoji" aria-hidden>{p.emoji}</span>
-                  <span className="preset-label">{p.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-section">
             <div className="form-section-label">生命周期</div>
             <div className="mode-toggle">
               <button
@@ -291,34 +192,6 @@ export function SessionCreatePage() {
                 className="form-input-mono"
               />
             </div>
-            {selectedPreset?.options && selectedPreset.options.length > 0 && (
-              <div className="argument-options" aria-label="Common arguments">
-                {selectedPreset.options.map((option) => {
-                  const active = activeOptionIds.includes(option.id);
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={'argument-chip' + (active ? ' is-active' : '')}
-                      title={option.hint}
-                      onClick={() => {
-                        setActiveOptionIds((ids) => active
-                          ? ids.filter((id) => id !== option.id)
-                          : [...ids, option.id]);
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {commandPreview && (
-              <div className="command-preview">
-                <span className="command-preview-label">preview</span>
-                <code>{commandPreview}</code>
-              </div>
-            )}
           </div>
 
           <div className="form-section">

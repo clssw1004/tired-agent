@@ -69,7 +69,7 @@ async function main(argv: string[]) {
   });
 
   try {
-    await app.listen({ port: cfg.port, host: cfg.host });
+    await app.listen({ port: cfg.port, host: cfg.host, reuseAddr: true });
     log.info({ host: cfg.host, port: cfg.port }, 'tired-agent manager listening');
     log.info(
       { tokenHint: cfg.token.slice(0, 4) + '****' },
