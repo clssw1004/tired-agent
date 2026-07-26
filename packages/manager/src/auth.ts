@@ -14,6 +14,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Storage } from './storage.js';
+import { log } from './util/log.js';
 import { API_PREFIX } from '@tired-agent/protocol';
 
 declare module 'fastify' {
@@ -55,6 +56,7 @@ export function registerAuth(app: FastifyInstance, storage: Storage): void {
     }
 
     if (!token) {
+      log.warn({ path, ip: req.ip }, 'auth: missing bearer token or access_token');
       return reply.code(401).send({
         error: { code: 'unauthorized', message: 'missing bearer token or access_token' },
       });
@@ -62,6 +64,7 @@ export function registerAuth(app: FastifyInstance, storage: Storage): void {
 
     const session = storage.getSession(token);
     if (!session) {
+      log.warn({ path, ip: req.ip }, 'auth: invalid or expired session');
       return reply.code(401).send({
         error: { code: 'unauthorized', message: 'invalid or expired session' },
       });

@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Storage } from '../storage.js';
 import type { ManagerConfig } from '../config.js';
+import { log } from '../util/log.js';
 
 const LoginSchema = z.object({
   token: z.string().min(1),
@@ -32,6 +33,7 @@ export function registerAuthRoutes(
   app.post('/manager/auth/login', async (req, reply) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
+      log.warn('auth: login — invalid body');
       return reply.code(400).send({
         error: { code: 'invalid_request', message: parsed.error.message },
       });
@@ -41,12 +43,14 @@ export function registerAuthRoutes(
     const provided = parsed.data.token;
     const expected = cfg.token;
     if (!constantTimeEqual(provided, expected)) {
+      log.warn({ ip: req.ip }, 'auth: login — token mismatch');
       return reply.code(401).send({
         error: { code: 'invalid_token', message: 'token mismatch' },
       });
     }
 
     const session = storage.createSession(cfg.sessionTtlMs, cfg.refreshTtlMs);
+    log.info('auth: login successful');
     return reply.code(200).send({
       sessionToken: session.token,
       refreshToken: session.refreshToken,
@@ -59,6 +63,7 @@ export function registerAuthRoutes(
     // Skip the global sessionToken hook (see comment on the export).
     const refreshToken = readBearerToken(req);
     if (!refreshToken) {
+      log.warn('auth: refresh — missing token');
       return reply.code(400).send({
         error: { code: 'invalid_request', message: 'missing refresh token' },
       });
@@ -67,10 +72,13 @@ export function registerAuthRoutes(
     const session = storage.refreshSession(refreshToken, cfg.sessionTtlMs, cfg.refreshTtlMs);
     if (!session) {
       // Missing or single-use-spent or expired.
+      log.warn('auth: refresh — token expired or used');
       return reply.code(401).send({
         error: { code: 'invalid_refresh', message: 'expired or used' },
       });
     }
+
+    log.info('auth: token refreshed');
 
     return reply.code(200).send({
       sessionToken: session.token,
@@ -84,6 +92,7 @@ export function registerAuthRoutes(
     // Auth is verified by registerAuth before we get here.
     const token = req.userToken;
     if (token) storage.deleteSession(token);
+    log.info('auth: session logged out');
     return reply.code(200).send({ ok: true });
   });
 
