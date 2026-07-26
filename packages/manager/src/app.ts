@@ -10,7 +10,6 @@ import cors from '@fastify/cors';
 import type { FastifyInstance } from 'fastify';
 import type { ManagerConfig } from './config.js';
 import type { Storage } from './storage.js';
-import type { HeartbeatTracker } from './heartbeat.js';
 import { API_PREFIX } from '@tired-agent/protocol';
 import { registerAuth } from './auth.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -22,7 +21,6 @@ import { log } from './util/log.js';
 export async function createApp(
   cfg: ManagerConfig,
   storage: Storage,
-  heartbeatTracker: HeartbeatTracker,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false, // we use our own pino logger
@@ -49,7 +47,7 @@ export async function createApp(
   // ── API Routes (all under API_PREFIX) ──────────────────────────────────
   app.register(async (scoped) => {
     registerAuthRoutes(scoped, storage, cfg);
-    registerAgentRoutes(scoped, storage, heartbeatTracker);
+    registerAgentRoutes(scoped, storage);
     registerProxyRoutes(scoped, storage);
   }, { prefix: API_PREFIX });
 

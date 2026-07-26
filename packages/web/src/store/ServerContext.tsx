@@ -26,13 +26,8 @@ export interface AgentServerRef extends ServerRef {
   agentId: string;
   /** The Agent's own base URL (not the Manager's), for display purposes. */
   agentBaseUrl: string;
-  state?: 'online' | 'offline' | 'unknown';
-  lastSeen?: number | null;
-  version?: string | null;
-  hostname?: string | null;
-  agentUptime?: number | null;
-  beatCount?: number;
-  remoteAddress?: string | null;
+  status: string;
+  platform?: { os: string; arch: string; release: string };
 }
 
 interface ServerContextValue {
@@ -59,13 +54,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         token: sessionToken ?? '',
         agentId: a.id,
         agentBaseUrl: a.baseUrl,
-        state: a.state,
-        lastSeen: a.lastSeen,
-        version: a.version,
-        hostname: a.hostname,
-        agentUptime: a.agentUptime,
-        beatCount: a.beatCount,
-        remoteAddress: a.remoteAddress,
+        status: a.status,
+        platform: a.platform,
       })),
     [agents, managerBaseUrl, sessionToken],
   );

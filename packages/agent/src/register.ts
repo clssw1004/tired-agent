@@ -17,7 +17,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, arch, release } from 'node:os';
+import { createSocket } from 'node:dgram';
 import type { ServerConfig } from './config.js';
 import { API_PREFIX } from '@tired-agent/protocol';
 
@@ -87,15 +88,17 @@ export async function registerWithManager(
   name: string,
   agentBaseUrl: string,
   agentKey?: string,
+  platform?: { os: string; arch: string; release: string },
 ): Promise<{ id: string; token: string }> {
   const base = managerUrl.replace(/\/+$/, '');
   const url = `${base}${API_PREFIX}/manager/agents/register`;
 
-  const body: Record<string, string> = {
+  const body: Record<string, string | object> = {
     name,
     baseUrl: agentBaseUrl,
   };
   if (agentKey) body.agentKey = agentKey;
+  if (platform) body.platform = platform;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -130,13 +133,17 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
     const payload = decodeRegisterString(cfg.registerString);
     // When host is 0.0.0.0 (listen-all), resolve the first non-loopback
     // IPv4 so the manager can actually reach us.
-    const advertiseHost = cfg.host === '0.0.0.0' ? detectLanIp() : cfg.host;
+    const advertiseHost = cfg.host === '0.0.0.0'
+      ? await detectBestLanIp(new URL(payload.managerUrl).hostname) || detectLanIp()
+      : cfg.host;
     const agentBaseUrl = `http://${advertiseHost}:${cfg.port}`;
+    const platform = { os: process.platform, arch: arch(), release: release() };
     const creds = await registerWithManager(
       payload.managerUrl,
       cfg.name,
       agentBaseUrl,
       agentKey,
+      platform,
     );
     await saveCredentials(cfg.dataDir, {
       agentKey,
@@ -161,19 +168,56 @@ export async function getOrRegisterCredentials(cfg: ServerConfig): Promise<Agent
 export function detectLanIp(): string {
   const interfaces = networkInterfaces();
   const candidates: string[] = [];
-  for (const iface of Object.values(interfaces)) {
-    if (!iface) continue;
-    for (const addr of iface) {
+  const virtualPattern = /^(docker|vEthernet|vbox|vmnet|br-|lo|tun|tap)/i;
+
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    if (virtualPattern.test(name)) continue; // 跳过虚拟网卡
+    for (const addr of addrs) {
       if (addr.family === 'IPv4' && !addr.internal) {
         candidates.push(addr.address);
       }
     }
   }
-  // Prefer common private ranges.
+
   for (const ip of candidates) {
     if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
       return ip;
     }
   }
-  return candidates[0] ?? '127.0.0.1';
+
+  if (candidates.length > 0) return candidates[0]!;
+
+  throw new Error(
+    '无法自动检测可用的非回环 IP 地址。请通过 --host 参数手动指定广告 IP。',
+  );
+}
+
+/**
+ * 使用 UDP socket 路由探测获取最佳广告 IP。
+ * 通过向 Manager 地址建立伪连接让内核选择出口网卡 IP，
+ * 确保 Manager 可达。
+ */
+function detectBestLanIp(managerHost: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const sock = createSocket('udp4');
+    const timeout = setTimeout(() => {
+      sock.close();
+      // 超时回退到常规检测
+      resolve(null);
+    }, 2000);
+
+    sock.once('error', () => {
+      clearTimeout(timeout);
+      sock.close();
+      resolve(null);
+    });
+
+    sock.connect(1, managerHost, () => {
+      clearTimeout(timeout);
+      const ip = (sock.address() as { address: string }).address;
+      sock.close();
+      resolve(ip || null);
+    });
+  });
 }

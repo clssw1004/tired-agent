@@ -7,18 +7,15 @@ interface Props {
   onRemove: () => void;
 }
 
-function getStateLabel(state?: string, lastSeen?: number | null): string {
-  if (state === 'online') return '在线';
-  if (state === 'offline' && lastSeen) {
-    const seconds = Math.floor((Date.now() - lastSeen) / 1000);
-    if (seconds < 120) return `${seconds} 秒前离线`;
-    return `离线 ${Math.floor(seconds / 60)} 分钟`;
-  }
+function getStateLabel(status?: string): string {
+  if (status === 'online') return '在线';
+  if (status === 'offline') return '离线';
+  if (status === 'pending') return '待注册';
   return '未知';
 }
 
 export function ServerCard({ server, onClick, onEdit, onRemove }: Props) {
-  const state = server.state ?? 'unknown';
+  const state = server.status ?? 'pending';
   return (
     <div className="card card-clickable" onClick={onClick}>
       <div className="card-info">
@@ -27,9 +24,8 @@ export function ServerCard({ server, onClick, onEdit, onRemove }: Props) {
         <div className="server-card-status">
           <span className={`server-state-dot server-state-${state}`} />
           <span className="server-state-label">
-            {getStateLabel(server.state, server.lastSeen)}
+            {getStateLabel(server.status)}
           </span>
-          {server.version && <span className="server-version">v{server.version}</span>}
         </div>
       </div>
       <div className="card-actions" onClick={(e) => e.stopPropagation()}>

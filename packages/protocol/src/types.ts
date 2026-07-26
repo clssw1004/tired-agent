@@ -360,6 +360,16 @@ export interface ErrorResponse {
   };
 }
 
+/** OS 平台信息 */
+export interface PlatformInfo {
+  /** 操作系统类型：'win32' | 'linux' | 'darwin' */
+  os: string;
+  /** CPU 架构：'x64' | 'arm64' | 'ia32' */
+  arch: string;
+  /** 版本号，如 '10.0.26200'、'6.1.7601' */
+  release: string;
+}
+
 /** Heartbeat request payload sent by agent to manager. */
 export interface HeartbeatRequest {
   /** Agent 软件版本, e.g. "0.1.19" */
@@ -368,6 +378,8 @@ export interface HeartbeatRequest {
   hostname?: string;
   /** Agent 进程已运行秒数 (process.uptime()) */
   uptime?: number;
+  /** Agent 操作系统平台信息 */
+  platform?: PlatformInfo;
 }
 
 /** Heartbeat response from manager. */

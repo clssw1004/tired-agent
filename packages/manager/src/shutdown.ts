@@ -11,9 +11,18 @@ import type { FastifyInstance } from 'fastify';
 import type { Storage } from './storage.js';
 import { log } from './util/log.js';
 
-export function registerShutdown(app: FastifyInstance, storage: Storage): void {
+export function registerShutdown(
+  app: FastifyInstance,
+  storage: Storage,
+  cleanup?: () => void | Promise<void>,
+): void {
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutdown signal received');
+    try {
+      await cleanup?.();
+    } catch (err) {
+      log.warn({ err }, 'error during cleanup');
+    }
     try {
       await app.close();
     } catch (err) {

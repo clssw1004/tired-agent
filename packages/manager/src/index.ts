@@ -24,7 +24,7 @@ loadDotenv({ path: resolve(__dirname, '../.env') });
 
 import { loadConfig, validateConfig } from './config.js';
 import { createStorage } from './storage.js';
-import { HeartbeatTracker } from './heartbeat.js';
+import { HealthPoller } from './health-poller.js';
 import { createApp } from './app.js';
 import { registerShutdown } from './shutdown.js';
 import { log } from './util/log.js';
@@ -51,9 +51,10 @@ async function main(argv: string[]) {
   await storage.init();
   log.info({ dataDir: cfg.dataDir }, 'storage initialized');
 
-  const heartbeatTracker = new HeartbeatTracker();
+  const healthPoller = new HealthPoller(storage);
+  healthPoller.start();
 
-  const app = await createApp(cfg, storage, heartbeatTracker);
+  const app = await createApp(cfg, storage);
 
   // Process-level error logs (prevent crash, log only).
   process.on('uncaughtException', (err) => {
@@ -63,7 +64,9 @@ async function main(argv: string[]) {
     log.error({ reason: String(reason) }, 'unhandledRejection');
   });
 
-  registerShutdown(app, storage);
+  registerShutdown(app, storage, () => {
+    healthPoller.stop();
+  });
 
   try {
     await app.listen({ port: cfg.port, host: cfg.host });
