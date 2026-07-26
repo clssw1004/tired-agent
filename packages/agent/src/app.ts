@@ -61,12 +61,13 @@ export async function createApp(
   );
 
   // Global error handler — never crash on a single request
-  app.setErrorHandler((err, req, reply) => {
-    log.error({ err: err.message, code: (err as { code?: string }).code, url: req.url }, 'request error');
+  app.setErrorHandler((err: unknown, req, reply) => {
+    const e = err as { message?: string; code?: string; statusCode?: number };
+    log.error({ err: e.message, code: e.code, url: req.url }, 'request error');
     if (reply.sent) return reply;
     try {
-      return reply.code((err as { statusCode?: number }).statusCode ?? 500).send({
-        error: { code: 'INTERNAL', message: err.message },
+      return reply.code(e.statusCode ?? 500).send({
+        error: { code: 'INTERNAL', message: e.message ?? 'Unknown error' },
       });
     } catch {
       return reply;

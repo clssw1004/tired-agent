@@ -33,12 +33,12 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@fastify/cors": "^9.0.1",
+    "@fastify/cors": "^11.3.0",
     "@tired-agent/protocol": "^0.1.0",
     "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
-    "fastify": "^4.28.1",
+    "fastify": "^5.10.0",
     "kysely": "^0.27.4",
     "node-pty": "^1.0.0",
     "pino": "^9.2.0",
