@@ -58,6 +58,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
       enabled: a.enabled,
       createdAt: a.createdAt,
       status: a.status,
+      version: a.version || undefined,
       platform: a.platformOs
         ? { os: a.platformOs, arch: a.platformArch, release: a.platformRelease }
         : undefined,

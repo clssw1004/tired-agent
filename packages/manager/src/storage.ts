@@ -41,6 +41,8 @@ export interface Agent {
   createdAt: number;
   /** 注册状态：pending | online | offline */
   status: string;
+  /** Agent 软件版本，如 "0.1.20" */
+  version: string;
   platformOs: string;
   platformArch: string;
   platformRelease: string;
@@ -98,6 +100,8 @@ export interface Storage {
   updateAgentStatus(id: string, status: string): void;
   /** Update the agent's platform info (OS, arch, release). */
   updateAgentPlatform(id: string, os: string, arch: string, release: string): void;
+  /** Update the agent's software version. */
+  updateAgentVersion(id: string, version: string): void;
   // ── sessions ──
   createSession(sessionTtlMs: number, refreshTtlMs: number): Session;
   /** Return session if `token` is the active sessionToken and not expired. */
@@ -155,6 +159,7 @@ export function createStorage(dataDir: string): Storage {
         enabled     INTEGER NOT NULL DEFAULT 1,
         createdAt   INTEGER NOT NULL,
         status      TEXT NOT NULL DEFAULT 'pending',
+        version     TEXT NOT NULL DEFAULT '',
         platform_os     TEXT NOT NULL DEFAULT '',
         platform_arch   TEXT NOT NULL DEFAULT '',
         platform_release TEXT NOT NULL DEFAULT ''
@@ -229,9 +234,18 @@ export function createStorage(dataDir: string): Storage {
       .get();
     if (!hasStatus) {
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN version TEXT NOT NULL DEFAULT ''`);
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_os TEXT NOT NULL DEFAULT ''`);
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_arch TEXT NOT NULL DEFAULT ''`);
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_release TEXT NOT NULL DEFAULT ''`);
+    }
+
+    // Migration: add version column (separate migration in case DB already has platform cols)
+    const hasVersion = handle
+      .prepare("SELECT 1 FROM pragma_table_info('manager_agents') WHERE name = 'version'")
+      .get();
+    if (!hasVersion) {
+      handle.exec(`ALTER TABLE manager_agents ADD COLUMN version TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -240,7 +254,7 @@ export function createStorage(dataDir: string): Storage {
   function listAgents(): Agent[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents ORDER BY createdAt ASC')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release FROM manager_agents ORDER BY createdAt ASC')
       .all();
     return rows.map(deserializeAgent);
   }
@@ -248,7 +262,7 @@ export function createStorage(dataDir: string): Storage {
   function getAgent(id: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE id = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release FROM manager_agents WHERE id = ?')
       .get(id);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -257,8 +271,8 @@ export function createStorage(dataDir: string): Storage {
     const id = randomUUID();
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)',
-    ).run(id, '', name, baseUrl, token, createdAt, 'pending', '', '', '');
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
+    ).run(id, '', name, baseUrl, token, createdAt, 'pending', '', '', '', '');
     return { id };
   }
 
@@ -271,7 +285,7 @@ export function createStorage(dataDir: string): Storage {
   function findAgentByKey(agentKey: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE agent_key = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release FROM manager_agents WHERE agent_key = ?')
       .get(agentKey);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -284,7 +298,7 @@ export function createStorage(dataDir: string): Storage {
   function findAgentByBaseUrl(baseUrl: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE baseUrl = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release FROM manager_agents WHERE baseUrl = ?')
       .get(baseUrl);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -327,8 +341,8 @@ export function createStorage(dataDir: string): Storage {
     const agentKeyFinal = agentKey ?? '';
     const createdAt = Date.now();
     db().prepare(
-      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)',
-    ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt, 'pending', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '');
+      'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
+    ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt, 'pending', '', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '');
     return { id: newId, token, status: 'pending' };
   }
 
@@ -342,11 +356,17 @@ export function createStorage(dataDir: string): Storage {
     ).run(os, arch, release, id);
   }
 
+  function updateAgentVersion(id: string, version: string): void {
+    db().prepare(
+      'UPDATE manager_agents SET version = ? WHERE id = ?',
+    ).run(version, id);
+  }
+
   /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
   function findAgentByToken(token: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, platform_os, platform_arch, platform_release FROM manager_agents WHERE token = ?')
+      .prepare('SELECT id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release FROM manager_agents WHERE token = ?')
       .get(token);
     return row ? deserializeAgent(row) : undefined;
   }
@@ -480,6 +500,7 @@ export function createStorage(dataDir: string): Storage {
       enabled: Boolean(r.enabled),
       createdAt: Number(r.createdAt),
       status: r.status ?? 'pending',
+      version: r.version ?? '',
       platformOs: r.platform_os ?? '',
       platformArch: r.platform_arch ?? '',
       platformRelease: r.platform_release ?? '',
@@ -498,6 +519,7 @@ export function createStorage(dataDir: string): Storage {
     registerAgent,
     updateAgentStatus,
     updateAgentPlatform,
+    updateAgentVersion,
     createSession,
     getSession,
     findSessionByRefreshToken,
