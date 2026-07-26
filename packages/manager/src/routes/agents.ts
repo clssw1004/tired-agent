@@ -29,6 +29,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Storage } from '../storage.js';
+import { log } from '../util/log.js';
 
 const AddAgentSchema = z.object({
   name: z.string().min(1),
@@ -51,6 +52,7 @@ const RegisterAgentSchema = z.object({
 export function registerAgentRoutes(app: FastifyInstance, storage: Storage): void {
   app.get('/manager/agents', async (_req, reply) => {
     const agents = storage.listAgents();
+    log.info({ count: agents.length }, 'agents: listed');
     const mapped = agents.map((a) => ({
       id: a.id,
       name: a.name,
@@ -69,6 +71,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
   app.post('/manager/agents', async (req, reply) => {
     const parsed = AddAgentSchema.safeParse(req.body);
     if (!parsed.success) {
+      log.warn({ err: parsed.error.message }, 'agents: manual add — invalid request');
       return reply.code(400).send({
         error: { code: 'invalid_request', message: parsed.error.message },
       });
@@ -78,6 +81,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
       parsed.data.baseUrl,
       parsed.data.token,
     );
+    log.info({ agentId: id, name: parsed.data.name }, 'agents: manually added');
     return reply.code(201).send({ id });
   });
 
@@ -85,6 +89,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
   app.post('/manager/agents/register', async (req, reply) => {
     const parsed = RegisterAgentSchema.safeParse(req.body);
     if (!parsed.success) {
+      log.warn({ err: parsed.error.message }, 'agents: self-register — invalid request');
       return reply.code(400).send({
         error: { code: 'invalid_request', message: parsed.error.message },
       });
@@ -96,6 +101,7 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
       parsed.data.agentKey,
       parsed.data.platform,
     );
+    log.info({ agentId: id, name: parsed.data.name, status }, 'agents: self-registered');
     return reply.code(201).send({ id, token, status });
   });
 
@@ -104,11 +110,13 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
     async (req, reply) => {
       const agent = storage.getAgent(req.params.id);
       if (!agent) {
+        log.warn({ agentId: req.params.id }, 'agents: delete — not found');
         return reply.code(404).send({
           error: { code: 'not_found', message: 'agent not found' },
         });
       }
       storage.deleteAgent(req.params.id);
+      log.info({ agentId: req.params.id, name: agent.name }, 'agents: deleted');
       return reply.code(200).send({ ok: true });
     },
   );

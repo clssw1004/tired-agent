@@ -24,6 +24,8 @@ const _sqlite: any = _require('better-sqlite3');
 // the module itself (when required from CJS).
 const Database = _sqlite.default ?? _sqlite;
 
+import { log } from './util/log.js';
+
 // ─── Public types ──────────────────────────────────────────────────────────
 
 /**
@@ -187,6 +189,7 @@ export function createStorage(dataDir: string): Storage {
       await mkdir(dataDir, { recursive: true });
     }
     const handle = db(); // touch schema
+    log.info({ dbPath }, 'storage: schema initialized');
 
     // Migration: v0.1 → dual-token schema.
     //   - manager_agents.agent_key column
@@ -203,6 +206,7 @@ export function createStorage(dataDir: string): Storage {
       handle.exec(
         `CREATE INDEX IF NOT EXISTS manager_agents_agent_key ON manager_agents(agent_key)`,
       );
+      log.info('storage: migration 1 — added agent_key column');
     }
 
     const hasRefreshToken = handle
@@ -226,6 +230,7 @@ export function createStorage(dataDir: string): Storage {
       handle.exec(
         `CREATE INDEX IF NOT EXISTS manager_sessions_refresh_expires ON manager_sessions(refresh_expires_at)`,
       );
+      log.info('storage: migration 2 — added refresh_token + refresh_expires_at columns');
     }
 
     // Migration: add status and platform columns
@@ -238,6 +243,7 @@ export function createStorage(dataDir: string): Storage {
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_os TEXT NOT NULL DEFAULT ''`);
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_arch TEXT NOT NULL DEFAULT ''`);
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN platform_release TEXT NOT NULL DEFAULT ''`);
+      log.info('storage: migration 3 — added status + platform columns');
     }
 
     // Migration: add version column (separate migration in case DB already has platform cols)
@@ -246,6 +252,7 @@ export function createStorage(dataDir: string): Storage {
       .get();
     if (!hasVersion) {
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN version TEXT NOT NULL DEFAULT ''`);
+      log.info('storage: migration 4 — added version column');
     }
   }
 
@@ -273,11 +280,13 @@ export function createStorage(dataDir: string): Storage {
     db().prepare(
       'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
     ).run(id, '', name, baseUrl, token, createdAt, 'pending', '', '', '', '');
+    log.info({ agentId: id, name, baseUrl }, 'storage: agent added manually');
     return { id };
   }
 
   function deleteAgent(id: string): void {
     db().prepare('DELETE FROM manager_agents WHERE id = ?').run(id);
+    log.info({ agentId: id }, 'storage: agent deleted');
   }
 
   // ── auto-register ───────────────────────────────────────────────────
@@ -320,6 +329,7 @@ export function createStorage(dataDir: string): Storage {
         db().prepare(
           'UPDATE manager_agents SET baseUrl = ?, name = ?, platform_os = ?, platform_arch = ?, platform_release = ? WHERE agent_key = ?',
         ).run(baseUrl, name, platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '', agentKey);
+        log.info({ agentId: existing.id, name, baseUrl, status: existing.status }, 'storage: agent re-registered (by agentKey)');
         return { id: existing.id, token: existing.token, status: existing.status };
       }
     }
@@ -332,6 +342,7 @@ export function createStorage(dataDir: string): Storage {
       db().prepare(
         'UPDATE manager_agents SET name = ?, agent_key = COALESCE(NULLIF(?, ""), agent_key), platform_os = ?, platform_arch = ?, platform_release = ? WHERE id = ?',
       ).run(name, agentKey ?? '', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '', sameUrl.id);
+      log.info({ agentId: sameUrl.id, name, baseUrl, status: sameUrl.status }, 'storage: agent re-registered (by baseUrl)');
       return { id: sameUrl.id, token: sameUrl.token, status: sameUrl.status };
     }
 
@@ -343,23 +354,27 @@ export function createStorage(dataDir: string): Storage {
     db().prepare(
       'INSERT INTO manager_agents (id, agent_key, name, baseUrl, token, enabled, createdAt, status, version, platform_os, platform_arch, platform_release) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
     ).run(newId, agentKeyFinal, name, baseUrl, token, createdAt, 'pending', '', platform?.os ?? '', platform?.arch ?? '', platform?.release ?? '');
+    log.info({ agentId: newId, name, baseUrl }, 'storage: agent first-registered');
     return { id: newId, token, status: 'pending' };
   }
 
   function updateAgentStatus(id: string, status: string): void {
     db().prepare('UPDATE manager_agents SET status = ? WHERE id = ?').run(status, id);
+    log.info({ agentId: id, status }, 'storage: agent status updated');
   }
 
   function updateAgentPlatform(id: string, os: string, arch: string, release: string): void {
     db().prepare(
       'UPDATE manager_agents SET platform_os = ?, platform_arch = ?, platform_release = ? WHERE id = ?',
     ).run(os, arch, release, id);
+    log.info({ agentId: id, os, arch }, 'storage: agent platform updated');
   }
 
   function updateAgentVersion(id: string, version: string): void {
     db().prepare(
       'UPDATE manager_agents SET version = ? WHERE id = ?',
     ).run(version, id);
+    log.info({ agentId: id, version }, 'storage: agent version updated');
   }
 
   /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
@@ -382,6 +397,7 @@ export function createStorage(dataDir: string): Storage {
     db().prepare(
       'INSERT INTO manager_sessions (token, refresh_token, createdAt, expiresAt, refresh_expires_at) VALUES (?, ?, ?, ?, ?)',
     ).run(token, refreshToken, now, expiresAt, refreshExpiresAt);
+    log.info('storage: session created');
     return { token, refreshToken, createdAt: now, expiresAt, refreshExpiresAt };
   }
 
@@ -411,6 +427,7 @@ export function createStorage(dataDir: string): Storage {
     const refreshExpiresAt = Number(row.refresh_expires_at);
     if (refreshExpiresAt < Date.now()) {
       db().prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
+      log.warn('storage: findSessionByRefreshToken — refresh token expired, deleted');
       return undefined;
     }
     return {
@@ -443,6 +460,7 @@ export function createStorage(dataDir: string): Storage {
       if (refreshExpiresAt < now) {
         // Expired refresh: drop the row, report missing.
         handle.prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
+        log.warn('storage: refreshSession — token expired');
         return undefined;
       }
       // Single-use: delete the old row.
@@ -465,7 +483,13 @@ export function createStorage(dataDir: string): Storage {
         refreshExpiresAt: newRefreshExpiresAt,
       };
     });
-    return txn(refreshToken);
+    const result = txn(refreshToken);
+    if (result) {
+      log.info('storage: session refreshed (sliding)');
+    } else {
+      log.warn('storage: refreshSession — no row or already consumed');
+    }
+    return result;
   }
 
   function deleteSession(token: string): void {
@@ -474,6 +498,7 @@ export function createStorage(dataDir: string): Storage {
     db().prepare(
       'DELETE FROM manager_sessions WHERE token = ? OR refresh_token = ?',
     ).run(token, token);
+    log.info('storage: session deleted');
   }
 
   function pruneExpired(): number {
@@ -481,6 +506,9 @@ export function createStorage(dataDir: string): Storage {
     const r = db()
       .prepare('DELETE FROM manager_sessions WHERE expiresAt < ? OR refresh_expires_at < ?')
       .run(now, now);
+    if (r.changes > 0) {
+      log.info({ count: r.changes }, 'storage: pruned expired sessions');
+    }
     return r.changes;
   }
 
