@@ -76,9 +76,24 @@ async function main(argv: string[]) {
       'Log in with: POST /api/v1/manager/auth/login { "token": "<token>" }',
     );
   } catch (err) {
-    log.fatal({ err }, 'failed to bind port');
-    await storage.close();
-    process.exit(1);
+    // Dev-mode hot-reload guard: if port is still held by a dying process,
+    // wait 1s and retry once before giving up.
+    if ((err as { code?: string }).code === 'EADDRINUSE') {
+      log.warn('port in use, retrying in 1s…');
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        await app.listen({ port: cfg.port, host: cfg.host, reuseAddr: true });
+      } catch (retryErr) {
+        log.fatal({ err: retryErr }, 'failed to bind port after retry');
+        await storage.close();
+        process.exit(1);
+      }
+      log.info({ host: cfg.host, port: cfg.port }, 'tired-agent manager listening');
+    } else {
+      log.fatal({ err }, 'failed to bind port');
+      await storage.close();
+      process.exit(1);
+    }
   }
 }
 
