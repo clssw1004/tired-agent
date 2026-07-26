@@ -170,7 +170,16 @@ export interface Transport {
   checkSession(ref: ServerRef): Promise<boolean>;
 
   /** List agents registered with this Manager. */
-  listAgents(ref: ServerRef): Promise<{ id: string; name: string; baseUrl: string }[]>;
+  listAgents(ref: ServerRef): Promise<{
+    id: string;
+    name: string;
+    baseUrl: string;
+    enabled: boolean;
+    createdAt: number;
+    status: string;
+    version?: string;
+    platform?: { os: string; arch: string; release: string };
+  }[]>;
 
   /** Register a new Agent with this Manager. */
   addAgent(ref: ServerRef, agent: { name: string; baseUrl: string; token: string }): Promise<{ id: string }>;
