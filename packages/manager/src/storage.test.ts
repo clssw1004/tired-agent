@@ -6,8 +6,10 @@
  *  - getSession(sessionToken) returns expiry; ignores rows whose session expired but
  *    refresh is still alive (we don't wipe them — refresh might still save the user)
  *  - findSessionByRefreshToken returns full row when refresh is alive
- *  - refreshSession: single-use (concurrent call with same old token gets `undefined`)
+ *  - refreshSession: Confirmed Rotation — old refresh token is kept alive
+ *    via `replaced_by`, so retries return the same new tokens instead of undefined
  *  - refreshSession: slides both TTLs forward
+ *  - confirmSession: confirms rotation, cleans up old row
  *  - deleteSession: by either token, wipes the whole row (both tokens die)
  *  - pruneExpired: cleans up rows whose session OR refresh has expired
  *
@@ -59,7 +61,7 @@ describe('dual-token session', () => {
   });
 });
 
-describe('refreshSession — single-use + sliding', () => {
+describe('refreshSession — Confirmed Rotation', () => {
   it('returns new paired tokens and slides both TTLs forward', () => {
     const original = storage.createSession(60_000, 2_592_000_000);
     const before = Date.now();
@@ -71,8 +73,14 @@ describe('refreshSession — single-use + sliding', () => {
     const next = storage.refreshSession(original.refreshToken, 60_000, 2_592_000_000);
     expect(next).toBeDefined();
 
-    // Old tokens must NOT find anything now — single-use invariant.
-    expect(storage.findSessionByRefreshToken(original.refreshToken)).toBeUndefined();
+    // Confirmed Rotation: old refreshToken still resolves to the new tokens
+    // (via replaced_by link), allowing retry on lost response.
+    const viaOld = storage.findSessionByRefreshToken(original.refreshToken);
+    expect(viaOld).toBeDefined();
+    expect(viaOld!.token).toEqual(next!.token);
+    expect(viaOld!.refreshToken).toEqual(next!.refreshToken);
+
+    // Original sessionToken is gone (replaced by new one).
     expect(storage.getSession(original.token)).toBeUndefined();
 
     // New tokens have new values.
@@ -84,13 +92,15 @@ describe('refreshSession — single-use + sliding', () => {
     expect(next!.refreshExpiresAt - before).toBeGreaterThan(2.5e9);     // ≈ 30d
   });
 
-  it('returns undefined on second refresh with the same old token', () => {
+  it('returns existing tokens on retry with the same old refresh token', () => {
     const original = storage.createSession(60_000, 2_592_000_000);
     const first = storage.refreshSession(original.refreshToken, 60_000, 2_592_000_000);
     expect(first).toBeDefined();
-    // Original refreshToken was deleted after first refresh.
+    // Confirmed Rotation: second refresh with old token returns same tokens.
     const second = storage.refreshSession(original.refreshToken, 60_000, 2_592_000_000);
-    expect(second).toBeUndefined();
+    expect(second).toBeDefined();
+    expect(second!.token).toEqual(first!.token);
+    expect(second!.refreshToken).toEqual(first!.refreshToken);
     // The new refreshToken we got back IS still valid (one full use left).
     expect(storage.findSessionByRefreshToken(first!.refreshToken)).toBeDefined();
   });
@@ -109,6 +119,32 @@ describe('refreshSession — single-use + sliding', () => {
       // Row was deleted by refreshSession as a side effect.
       expect(storage.findSessionByRefreshToken(original.refreshToken)).toBeUndefined();
     });
+  });
+});
+
+describe('confirmSession', () => {
+  it('cleans up old row after new sessionToken is confirmed', () => {
+    const original = storage.createSession(60_000, 2_592_000_000);
+    const next = storage.refreshSession(original.refreshToken, 60_000, 2_592_000_000);
+    expect(next).toBeDefined();
+
+    // Before confirm: old refreshToken still works (retry path).
+    expect(storage.findSessionByRefreshToken(original.refreshToken)).toBeDefined();
+
+    // confirmSession: the new sessionToken has been used by a real API request.
+    storage.confirmSession(next!.token);
+
+    // After confirm: old refreshToken is now truly dead.
+    expect(storage.findSessionByRefreshToken(original.refreshToken)).toBeUndefined();
+    // New tokens still work.
+    expect(storage.getSession(next!.token)).toBeDefined();
+    expect(storage.findSessionByRefreshToken(next!.refreshToken)).toBeDefined();
+  });
+
+  it('is idempotent — no-op when no row matches replaced_by', () => {
+    const s = storage.createSession(60_000, 2_592_000_000);
+    // No refresh was done, so no row has replaced_by pointing to s.token.
+    expect(() => storage.confirmSession(s.token)).not.toThrow();
   });
 });
 

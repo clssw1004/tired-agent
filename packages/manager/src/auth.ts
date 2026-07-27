@@ -70,6 +70,11 @@ export function registerAuth(app: FastifyInstance, storage: Storage): void {
       });
     }
 
+    // Confirmed Rotation: this sessionToken was just used successfully →
+    // the client confirmed it received the new tokens. Clean up the old row
+    // that was replaced by this sessionToken.
+    storage.confirmSession(token);
+
     req.userToken = token;
   });
 }
