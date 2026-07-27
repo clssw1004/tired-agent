@@ -111,18 +111,25 @@ export interface Storage {
   /** Return the full session row keyed by refreshToken if not expired. */
   findSessionByRefreshToken(token: string): Session | undefined;
   /**
-   * Atomic single-use refresh:
-   *  - Look up the row by `refreshToken`.
-   *  - Validate `refreshExpiresAt > now`.
-   *  - DELETE old row + INSERT new row (with new sessionToken + new refreshToken,
-   *    with both expiries sliding forward).
-   *  - Return new Session; or undefined when the token is expired/missing.
+   * Confirmed Rotation — 高可靠性轮转。
    *
-   * Because the old row is deleted in the same transaction as the insert,
-   * a concurrent refresh with the same token races and finds the row
-   * already gone → undefined. Caller translates that to a 401.
+   * 取代原有的 DELETE+INSERT 单次使用模型。旧行不删除，标记 replaced_by；
+   * 当新 sessionToken 被 auth middleware 验证通过（confirmSession）后才清理旧行。
+   * 丢响应场景下客户端重试旧 refreshToken → 通过 replaced_by 返回同一对新 token。
+   *
+   * 流程：
+   *  1. 按 refresh_token 找行，检查 refresh_expires_at
+   *  2. IF replaced_by IS NOT NULL → 已轮转过的重试 → 返回已签发的 token 对
+   *  3. ELSE → 首次刷新 → UPDATE 旧行 SET replaced_by, INSERT 新行
+   *
+   * 返回新 Session；refreshToken 已过期/不存在时返回 undefined。
    */
   refreshSession(refreshToken: string, sessionTtlMs: number, refreshTtlMs: number): Session | undefined;
+  /**
+   * 确认轮转完成。当 sessionToken 被真实 API 请求验证通过后调用。
+   * 清除所有 replaced_by 指向该 token 的旧行——旧 refreshToken 此时真正失效。
+   */
+  confirmSession(token: string): void;
   /** Drop the whole session row (covers both tokens at once). */
   deleteSession(token: string): void;
   /**
@@ -253,6 +260,17 @@ export function createStorage(dataDir: string): Storage {
     if (!hasVersion) {
       handle.exec(`ALTER TABLE manager_agents ADD COLUMN version TEXT NOT NULL DEFAULT ''`);
       log.info('storage: migration 4 — added version column');
+    }
+
+    // Migration 5: Confirmed Rotation — replaced_by column.
+    const hasReplacedBy = handle
+      .prepare("SELECT 1 FROM pragma_table_info('manager_sessions') WHERE name = 'replaced_by'")
+      .get();
+    if (!hasReplacedBy) {
+      handle.exec(
+        `ALTER TABLE manager_sessions ADD COLUMN replaced_by TEXT DEFAULT NULL`,
+      );
+      log.info('storage: migration 5 — added replaced_by column');
     }
   }
 
@@ -404,9 +422,12 @@ export function createStorage(dataDir: string): Storage {
   function getSession(token: string): { expiresAt: number } | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT expiresAt FROM manager_sessions WHERE token = ?')
+      .prepare('SELECT expiresAt, replaced_by FROM manager_sessions WHERE token = ?')
       .get(token);
     if (!row) return undefined;
+    // If this sessionToken has been replaced by a newer one (confirmed rotation),
+    // it is no longer valid as an auth credential.
+    if (row.replaced_by != null) return undefined;
     const expiresAt = Number(row.expiresAt);
     if (expiresAt < Date.now()) {
       // Expired sessionToken: still possible this row is alive via
@@ -421,7 +442,7 @@ export function createStorage(dataDir: string): Storage {
   function findSessionByRefreshToken(token: string): Session | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = db()
-      .prepare('SELECT token, refresh_token, createdAt, expiresAt, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
+      .prepare('SELECT token, refresh_token, replaced_by, createdAt, expiresAt, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
       .get(token);
     if (!row) return undefined;
     const refreshExpiresAt = Number(row.refresh_expires_at);
@@ -430,6 +451,26 @@ export function createStorage(dataDir: string): Storage {
       log.warn('storage: findSessionByRefreshToken — refresh token expired, deleted');
       return undefined;
     }
+
+    // If this refresh token has already been rotated, follow the link to
+    // the current row and return those tokens instead.
+    if (row.replaced_by != null) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const newRow: any = db()
+        .prepare('SELECT token, refresh_token, createdAt, expiresAt, refresh_expires_at FROM manager_sessions WHERE token = ?')
+        .get(String(row.replaced_by));
+      if (newRow) {
+        return {
+          token: newRow.token,
+          refreshToken: newRow.refresh_token,
+          createdAt: Number(newRow.createdAt),
+          expiresAt: Number(newRow.expiresAt),
+          refreshExpiresAt: Number(newRow.refresh_expires_at),
+        };
+      }
+      // New row was pruned — fall through to return the old row (best-effort).
+    }
+
     return {
       token: row.token,
       refreshToken: row.refresh_token,
@@ -437,6 +478,15 @@ export function createStorage(dataDir: string): Storage {
       expiresAt: Number(row.expiresAt),
       refreshExpiresAt,
     };
+  }
+
+  function confirmSession(token: string): void {
+    const r = db()
+      .prepare('DELETE FROM manager_sessions WHERE replaced_by = ?')
+      .run(token);
+    if (r.changes > 0) {
+      log.info({ token: token.substring(0, 8) + '…' }, 'storage: confirmSession — old row cleaned up');
+    }
   }
 
   function refreshSession(
@@ -447,13 +497,10 @@ export function createStorage(dataDir: string): Storage {
     const handle = db();
     const now = Date.now();
 
-    // Wrap in a single transaction. better-sqlite3 transactions are
-    // synchronous and serialization is per-connection — fast enough for
-    // the manager's load.
     const txn = handle.transaction((token: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const row: any = handle
-        .prepare('SELECT expiresAt, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
+        .prepare('SELECT replaced_by, refresh_expires_at FROM manager_sessions WHERE refresh_token = ?')
         .get(token);
       if (!row) return undefined;
       const refreshExpiresAt = Number(row.refresh_expires_at);
@@ -463,18 +510,46 @@ export function createStorage(dataDir: string): Storage {
         log.warn('storage: refreshSession — token expired');
         return undefined;
       }
-      // Single-use: delete the old row.
-      handle.prepare('DELETE FROM manager_sessions WHERE refresh_token = ?').run(token);
-      // Insert new row with new sessionToken + new refreshToken. Sliding
-      // means the user keeps the same 30-day window as long as they
-      // refresh at least once before it ends.
+
+      // ── Retry path: this refreshToken has already been rotated ───────
+      // Client didn't receive the previous response. Return the same
+      // new token pair we already issued instead of doing another rotation.
+      if (row.replaced_by != null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const newRow: any = handle
+          .prepare('SELECT token, refresh_token, createdAt, expiresAt, refresh_expires_at FROM manager_sessions WHERE token = ?')
+          .get(String(row.replaced_by));
+        if (newRow) {
+          log.info('storage: refreshSession — retry, returning existing tokens');
+          return {
+            token: newRow.token,
+            refreshToken: newRow.refresh_token,
+            createdAt: Number(newRow.createdAt),
+            expiresAt: Number(newRow.expiresAt),
+            refreshExpiresAt: Number(newRow.refresh_expires_at),
+          };
+        }
+        // New row was pruned (e.g. expired sessionToken + prune hit it).
+        // Fall through to generate fresh tokens — better than returning
+        // undefined which forces the client to re-auth.
+        log.warn('storage: refreshSession — retry but new row gone, generating fresh');
+      }
+
+      // ── First use of this refreshToken ───────────────────────────────
+      // UPDATE old row to mark it as replaced; INSERT new row.
       const newToken = randomBytes(32).toString('hex');
       const newRefreshToken = randomBytes(32).toString('hex');
       const newExpiresAt = now + sessionTtlMs;
       const newRefreshExpiresAt = now + refreshTtlMs;
+
+      handle.prepare(
+        'UPDATE manager_sessions SET replaced_by = ? WHERE refresh_token = ?',
+      ).run(newToken, token);
+
       handle.prepare(
         'INSERT INTO manager_sessions (token, refresh_token, createdAt, expiresAt, refresh_expires_at) VALUES (?, ?, ?, ?, ?)',
       ).run(newToken, newRefreshToken, now, newExpiresAt, newRefreshExpiresAt);
+
       return {
         token: newToken,
         refreshToken: newRefreshToken,
@@ -485,9 +560,9 @@ export function createStorage(dataDir: string): Storage {
     });
     const result = txn(refreshToken);
     if (result) {
-      log.info('storage: session refreshed (sliding)');
+      log.info('storage: session refreshed (sliding, confirmed rotation)');
     } else {
-      log.warn('storage: refreshSession — no row or already consumed');
+      log.warn('storage: refreshSession — no row');
     }
     return result;
   }
@@ -509,7 +584,16 @@ export function createStorage(dataDir: string): Storage {
     if (r.changes > 0) {
       log.info({ count: r.changes }, 'storage: pruned expired sessions');
     }
-    return r.changes;
+    // Also clean up dangling replaced_by references: rows whose target
+    // sessionToken no longer exists (confirmSession should have cleaned
+    // these up, but this is a safety net).
+    const dangling = db()
+      .prepare(`DELETE FROM manager_sessions WHERE replaced_by IS NOT NULL AND replaced_by NOT IN (SELECT token FROM manager_sessions)`)
+      .run();
+    if (dangling.changes > 0) {
+      log.info({ count: dangling.changes }, 'storage: pruned dangling replaced_by rows');
+    }
+    return r.changes + dangling.changes;
   }
 
   async function close() {
@@ -552,6 +636,7 @@ export function createStorage(dataDir: string): Storage {
     getSession,
     findSessionByRefreshToken,
     refreshSession,
+    confirmSession,
     deleteSession,
     pruneExpired,
     close,
