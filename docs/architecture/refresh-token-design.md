@@ -75,6 +75,10 @@ function refresh(refreshToken) {
 - SQLite 在 Node 是单连接 sequential，无 race；但**为跨进程安全**仍走事务
 - Web 端多个 tab 共享同一 refreshToken 时只有一个能 refresh 成功，第二个客户端需要 retry（HTTP 401 → 用户后续刷新会重 login）
 
+> **⚠️ 2026-07-27 改进：Confirmed Rotation**
+>
+> 上述 DELETE+INSERT 策略存在可靠性问题：当服务端处理完 refresh（已 DELETE 旧行）但响应丢失时，客户端永久丢失 refresh 能力。改进方案见下文 [Confirmed Rotation — 高可靠性轮转](#confirmed-rotation--高可靠性轮转)。
+
 ## 协议包（`@tired-agent/protocol`）
 
 ### Transport 接口扩展
@@ -239,3 +243,130 @@ ROADMAP 中"长效登录"条目状态从 `📋 设计中` 改为 `✅ 完成`（
 - 多设备并发登录：单一 refreshToken 多 tab 共享，第二 tab refresh 后第一 tab refreshToken 失效 → 该 tab 401 → 用户无感重 login（接受）
 - 跨设备同步（iPhone + iPad 共账号）的最新 design：以后轮
 - "记住我" UI checkbox：mobile 不需要；web 端如果需要另议
+
+## Confirmed Rotation — 高可靠性轮转
+
+> 2026-07-27 新增。解决移动端 refresh 响应丢失导致永久断连的问题。本设计补充而非取代上述双 token 模型。
+
+### 问题
+
+refreshToken 是单次使用凭证。当 refresh 请求已到达服务端（旧 token 被 DELETE），但 HTTP 响应在传输中丢失（网络波动、切后台、App 崩溃）时，客户端持有的仍是已失效的旧 refreshToken。下次重试 → `invalid_refresh` → 用户需重新输入 API Token。
+
+**根因**：以"响应到达客户端"作为轮转确认信号，但该信号不可靠。
+
+### 方案：Confirmed Rotation
+
+将确认信号改为"新 sessionToken 被 auth middleware 验证通过"——这是一个服务端侧可可靠验证的信号。
+
+```
+❌ 响应到达客户端 → 不可靠（可能丢）
+✅ 新 sessionToken 被真实 API 请求使用 → 可靠（服务端确认）
+```
+
+### Schema 变更
+
+```sql
+ALTER TABLE manager_sessions ADD COLUMN replaced_by TEXT;
+-- replaced_by: 本行的 refreshToken 被哪个新 sessionToken 替代了
+-- NULL = 未使用的 refreshToken（初始状态）
+-- 'abc...' = 已轮转，新 sessionToken 是 abc...
+```
+
+使用现有 migration 模式（`pragma_table_info` 检测 + `try/catch ALTER TABLE`）。
+
+### refreshSession 新流程
+
+```
+refreshToken_A 请求刷新：
+  1. 按 refresh_token 找行
+  2. 检查 refresh_expires_at —— 过期则 DELETE 本行，return undefined
+  3. IF replaced_by IS NOT NULL（重试/丢了响应）：
+     a. SELECT 新行 WHERE token = replaced_by
+     b. 新行存在且 refresh_expires_at 未过期 → 返回新行的 token 对（不再轮转）
+     c. 新行不存在（被 prune） → 降级为生成新 token（fall through）
+  4. 首次使用本 refreshToken：
+     a. 生成 sessionToken_B + refreshToken_B + TTL
+     b. INSERT 新行
+     c. UPDATE 旧行 SET replaced_by = 'sessionToken_B'（不删旧行！）
+     d. 返回 sessionToken_B + refreshToken_B
+
+核心变化：
+  ❌ DELETE 旧行 + INSERT 新行
+  ✅ UPDATE 旧行 (标记 replaced_by) + INSERT 新行
+```
+
+### confirmSession（新增）
+
+```typescript
+function confirmSession(token: string): void {
+  // 清除被当前 sessionToken 替代的旧行
+  db().prepare('DELETE FROM manager_sessions WHERE replaced_by = ?').run(token);
+}
+```
+
+### auth middleware 增强
+
+```typescript
+// registerAuth — onRequest hook
+const session = storage.getSession(token);
+if (!session) { reply.code(401).send(...); return; }
+
+// ✅ 新逻辑：这个 sessionToken 被真实使用了 → 确认轮转完成
+storage.confirmSession(token);
+
+req.userToken = token;
+```
+
+仅对受 `registerAuth` 保护的 API 路由生效。login、refresh、register 等 public 路径不触发 confirmSession。
+
+### pruneExpired 增强
+
+```sql
+-- 原有：清理 TTL 过期的行
+DELETE FROM manager_sessions WHERE expiresAt < now OR refresh_expires_at < now;
+
+-- 本应被 confirmSession 清理的行，如果因异常未被清理，prune 兜底：
+-- replaced_by 指向的 token 已不存在 → 旧行不再有用
+DELETE FROM manager_sessions
+WHERE replaced_by IS NOT NULL
+  AND replaced_by NOT IN (SELECT token FROM manager_sessions);
+```
+
+### 场景验证
+
+| 场景 | 结果 |
+|------|------|
+| **正常轮转** | 客户端收到新 token → 下次 API 请求用新 sessionToken → auth middleware 验证通过 → confirmSession() 删旧行 → refreshToken_A 失效 ✓ |
+| **丢响应（切后台/网络断）** | 客户端重试 refreshToken_A → refreshSession 发现 replaced_by → 返回 sessionToken_B + refreshToken_B（同一对）→ 恢复 ✓ |
+| **多次丢响应** | 每次重试都返回同一对 token，不产生新轮转 ✓ |
+| **App 崩溃重启** | 旧 refreshToken 保留（未过 refresh_expires_at）→ 重启后 boot() 用它 refresh → 通过 replaced_by 拿到同一对新 token ✓ |
+| **token 泄露** | 攻击者用 refreshToken_A 只能重复获取 sessionToken_B。合法客户端使用 sessionToken_B 时触发 confirmSession → 旧行被删 ✓ |
+
+### 安全性
+
+- 旧 refreshToken 仍有 `refresh_expires_at` 兜底，不是无限宽限
+- `confirmSession` 触发条件是真实 API 请求经过 auth middleware 验证——攻击者无法伪造
+- 退化场景（新行被 prune、崩溃后长时间不重启）：旧行随 `refresh_expires_at` 过期
+
+### 客户端配合
+
+配套 Flutter 端改动较小：
+
+1. **`WidgetsBindingObserver`**：`TiredAgentApp` 监听 `AppLifecycleState.resumed`，切前台时触发 session 刷新
+2. **`AuthProvider.refreshAllSessions()`**：对所有连接调 `ensureFreshSession()`
+3. **`ManagerConnection.ensureFreshSession()`**：已有逻辑无需改动，直接受益于服务端 Confirmed Rotation
+
+### 文件清单
+
+| 文件 | 改动 |
+|------|------|
+| `src/storage.ts` | ALTER TABLE migration；重写 `refreshSession`（UPDATE+INSERT）；新增 `confirmSession`；增强 `pruneExpired` |
+| `src/auth.ts` | `registerAuth` 验证成功后调 `storage.confirmSession(token)` |
+| `src/storage.test.ts` | 更新测试对齐新行为 |
+
+### 跨端实施顺序
+
+按 PR 顺序：
+
+1. **tired-agent: storage.ts + auth.ts**（本设计的主要改动）→ 跑 manager 测试
+2. **tired_agent_app**（Flutter 生命周期配合改动）→ flutter analyze
