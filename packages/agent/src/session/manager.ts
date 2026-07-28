@@ -181,6 +181,7 @@ export class SessionManager {
     return live.get(id)?.record ?? this.storage.get(id);
   }
 
+  /** Returns SessionRecord[] — claudeSessionId is serialized as-is by Fastify. */
   list(): SessionRecord[] {
     const byId = new Map<string, SessionRecord>();
     for (const rec of this.storage.list()) byId.set(rec.id, rec);
