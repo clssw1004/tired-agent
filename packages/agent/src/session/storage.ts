@@ -85,11 +85,13 @@ export function createSqliteStorage(dataDir: string): Storage {
         rows        INTEGER NOT NULL DEFAULT 24,
         label       TEXT,
         mode        TEXT DEFAULT 'process',
-        claudeSessionId TEXT
+        claudeSessionId TEXT,
+        extra       TEXT
       );
     `);
     try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'process\''); } catch { /* already exists */ }
     try { _db.exec('ALTER TABLE sessions ADD COLUMN claudeSessionId TEXT'); } catch { /* already exists */ }
+    try { _db.exec('ALTER TABLE sessions ADD COLUMN extra TEXT'); } catch { /* already exists */ }
     return _db;
   }
 
@@ -100,13 +102,14 @@ export function createSqliteStorage(dataDir: string): Storage {
 
   function insert(s: SessionRecord) {
     db().prepare(`
-      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode,claudeSessionId)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode,claudeSessionId,extra)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       s.id, s.cmd, JSON.stringify(s.args), s.cwd,
       s.env ? JSON.stringify(s.env) : null, s.status,
       s.pid, s.exitCode, s.createdAt, s.exitedAt,
       s.byteOffset, s.cols, s.rows, s.label, s.mode, s.claudeSessionId,
+      s.extra ? JSON.stringify(s.extra) : null,
     );
   }
 
@@ -116,7 +119,7 @@ export function createSqliteStorage(dataDir: string): Storage {
     for (const [k, v] of Object.entries(partial)) {
       if (k === 'id') continue;
       fields.push(`${k}=?`);
-      values.push(k === 'args' || k === 'env' ? JSON.stringify(v) : v);
+      values.push(k === 'args' || k === 'env' || k === 'extra' ? JSON.stringify(v) : v);
     }
     if (!fields.length) return;
     values.push(partial.id);
@@ -230,6 +233,7 @@ export function createSqliteStorage(dataDir: string): Storage {
       label: r['label'] ?? null,
       mode: (r['mode'] as SessionMode | null) ?? null,
       claudeSessionId: r['claudeSessionId'] ?? null,
+      extra: r['extra'] ? JSON.parse(r['extra']) : null,
     };
   }
 

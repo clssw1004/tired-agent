@@ -401,6 +401,23 @@ export class SessionManager {
       }
     }
 
+    // If args contain `--name <label>`, store it in extra.claudeName
+    // so the server-side session record carries the label the user set.
+    const nameIdx = args.indexOf('--name');
+    if (nameIdx >= 0 && nameIdx + 1 < args.length) {
+      const claudeName = args[nameIdx + 1] as string;
+      if (typeof claudeName === 'string' && claudeName.length > 0) {
+        record = {
+          ...record,
+          extra: { ...record.extra, claudeName },
+        };
+        this.storage.update({
+          id,
+          extra: record.extra,
+        });
+      }
+    }
+
     let spawnFile = file;
     let spawnArgs = args;
     if (process.platform === 'win32') {
