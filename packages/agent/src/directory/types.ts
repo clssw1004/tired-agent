@@ -8,6 +8,7 @@
  */
 
 import type {
+  ClaudeProjectInfo,
   DirectoryFavorite,
   DirectoryListing,
   DirectoryShortcuts,
@@ -85,4 +86,13 @@ export interface DirectoryService {
    * Throws on any failure — does not enforce the home root.
    */
   validateDirectory(path: string): Promise<void>;
+
+  /**
+   * Scan Claude Code project session files for the given `cwd`.
+   *
+   * Reads only directory metadata (mtime, size) — no file content.
+   * Returns an empty sessions array when the project directory does
+   * not exist (ENOENT).
+   */
+  getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo>;
 }
