@@ -13,6 +13,7 @@ import { registerAuth } from './auth.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerStreamRoute } from './routes/stream.js';
 import { registerDirectoryRoutes } from './routes/directories.js';
+import { registerClaudeProjectsRoutes } from './routes/claude-projects.js';
 import { log, initLogger } from './util/log.js';
 import { config as loadDotenv } from 'dotenv';
 import { join, dirname } from 'node:path';
@@ -45,6 +46,7 @@ export async function createApp(
     registerSessionsRoutes(scoped, manager, storage, cfg);
     registerStreamRoute(scoped, manager, storage, cfg);
     registerDirectoryRoutes(scoped, directoryService, directoryStore);
+    registerClaudeProjectsRoutes(scoped, directoryService);
   }, { prefix: API_PREFIX });
 
   // Health check (no auth required)

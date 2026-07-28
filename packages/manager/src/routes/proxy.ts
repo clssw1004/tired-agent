@@ -287,6 +287,23 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
       proxyJson(storage, req.params.aid, 'GET', '/api/v1/directories/shortcuts', undefined, reply),
   );
 
+  app.get<{ Params: { aid: string }; Querystring: { path?: string } }>(
+    '/agents/:aid/directories/claude-projects',
+    async (req, reply) => {
+      const qs = req.query.path
+        ? `?path=${encodeURIComponent(req.query.path)}`
+        : '';
+      return proxyJson(
+        storage,
+        req.params.aid,
+        'GET',
+        `/api/v1/directories/claude-projects${qs}`,
+        undefined,
+        reply,
+      );
+    },
+  );
+
   app.get<{ Params: { aid: string } }>(
     '/agents/:aid/directories',
     async (req, reply) => {

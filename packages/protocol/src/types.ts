@@ -114,6 +114,12 @@ export interface Session {
   label?: string;
   /** @default 'process' */
   mode?: SessionMode;
+  /**
+   * Claude's internal session_id, present for persistent (chat) sessions.
+   * Extracted from the NDJSON stream and stored so `--resume` survives
+   * agent restarts.
+   */
+  claudeSessionId?: string | null;
 }
 
 /**
@@ -387,4 +393,19 @@ export interface HeartbeatResponse {
   status: 'ok';
   ts: number;
   managerVersion: string;
+}
+
+// ── Claude project scanning types ──────────────────────────────────────
+
+/** A single Claude project session snapshot from the filesystem. */
+export interface ClaudeProjectSession {
+  sessionId: string;
+  lastModified: number;
+  size: number;
+}
+
+/** Metadata about a Claude project on disk. */
+export interface ClaudeProjectInfo {
+  displayPath: string;
+  sessions: ClaudeProjectSession[];
 }

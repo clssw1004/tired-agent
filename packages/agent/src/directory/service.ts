@@ -32,10 +32,13 @@ import type { Dirent } from 'node:fs';
 import { dirname, isAbsolute, resolve, join as pathJoin } from 'node:path';
 import { homedir } from 'node:os';
 import type {
+  ClaudeProjectInfo,
+  ClaudeProjectSession,
   DirectoryEntry,
   DirectoryListing,
 } from '@tired-agent/protocol';
 import type { DirectoryService } from './types.js';
+import { encodeClaudeProjectPath } from './claude-path.js';
 
 export function createDirectoryService(
   homeDirectory: string = homedir(),
@@ -98,7 +101,45 @@ export function createDirectoryService(
     }
   }
 
-  return { list, validateDirectory };
+  async function getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo> {
+    const encoded = encodeClaudeProjectPath(cwd);
+    const projectDir = pathJoin(homedir(), '.claude', 'projects', encoded);
+
+    let entries: Dirent[];
+    try {
+      entries = await readdir(projectDir, { withFileTypes: true });
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { displayPath: cwd, sessions: [] };
+      }
+      throw err;
+    }
+
+    const jsonlFiles = entries.filter(
+      (e) => e.isFile() && e.name.endsWith('.jsonl'),
+    );
+
+    const sessions: ClaudeProjectSession[] = [];
+    for (const f of jsonlFiles) {
+      const sessionId = f.name.slice(0, -'.jsonl'.length);
+      if (!/^[0-9a-f-]{36}$/i.test(sessionId)) continue;
+      try {
+        const stats = await stat(pathJoin(projectDir, f.name));
+        sessions.push({
+          sessionId,
+          lastModified: stats.mtimeMs,
+          size: stats.size,
+        });
+      } catch {
+        continue;
+      }
+    }
+
+    sessions.sort((a, b) => b.lastModified - a.lastModified);
+    return { displayPath: cwd, sessions };
+  }
+
+  return { list, validateDirectory, getClaudeProjects };
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────
