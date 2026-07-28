@@ -28,7 +28,9 @@
  */
 
 import { stat, readdir } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import type { Dirent } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { dirname, isAbsolute, resolve, join as pathJoin } from 'node:path';
 import { homedir } from 'node:os';
 import type {
@@ -39,6 +41,67 @@ import type {
 } from '@tired-agent/protocol';
 import type { DirectoryService } from './types.js';
 import { encodeClaudeProjectPath } from './claude-path.js';
+
+/**
+ * Walk the last ~100KB of a .jsonl file for a human-readable display name.
+ *
+ * Priority: `aiTitle` > `agent-name` > `custom-title`. Returns null when
+ * none of these events are found in the tail window.
+ */
+async function readJsonlDisplayName(
+  filePath: string,
+  tailBytes = 100 * 1024,
+): Promise<string | null> {
+  let aiTitle: string | null = null;
+  let agentName: string | null = null;
+  let customTitle: string | null = null;
+
+  try {
+    const stats = await stat(filePath);
+    if (stats.size === 0) return null;
+    const start = Math.max(0, stats.size - tailBytes);
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: 'utf-8', start }),
+      crlfDelay: Infinity,
+    });
+
+    const buf: string[] = [];
+    for await (const line of rl) {
+      if (line.length > 0) buf.push(line);
+    }
+    rl.close();
+
+    // Walk backward through the tail lines.
+    for (let i = buf.length - 1; i >= 0; i--) {
+      const raw = buf[i];
+      if (!raw) continue;
+      try {
+        const obj = JSON.parse(raw) as Record<string, unknown>;
+        const t = obj['type'];
+        if (t === 'ai-title' && typeof obj['aiTitle'] === 'string') {
+          aiTitle ??= obj['aiTitle'] as string;
+        } else if (
+          t === 'agent-name' &&
+          typeof obj['agentName'] === 'string'
+        ) {
+          agentName ??= obj['agentName'] as string;
+        } else if (
+          t === 'custom-title' &&
+          typeof obj['content'] === 'string'
+        ) {
+          customTitle ??= obj['content'] as string;
+        }
+        if (aiTitle && agentName && customTitle) break;
+      } catch {
+        // skip unparseable lines
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return aiTitle ?? agentName ?? customTitle;
+}
 
 export function createDirectoryService(
   homeDirectory: string = homedir(),
@@ -123,12 +186,18 @@ export function createDirectoryService(
     for (const f of jsonlFiles) {
       const sessionId = f.name.slice(0, -'.jsonl'.length);
       if (!/^[0-9a-f-]{36}$/i.test(sessionId)) continue;
+      const filePath = pathJoin(projectDir, f.name);
       try {
-        const stats = await stat(pathJoin(projectDir, f.name));
+        const stats = await stat(filePath);
+        // Read the last 2KB for a human-readable label. If the file
+        // doesn't contain a custom-title or slug, displayName stays null
+        // and the UI falls back to the session id.
+        const displayName = await readJsonlDisplayName(filePath);
         sessions.push({
           sessionId,
           lastModified: stats.mtimeMs,
           size: stats.size,
+          displayName,
         });
       } catch {
         continue;
