@@ -389,6 +389,18 @@ export class SessionManager {
     const file = normalizeCmd(record.cmd);
     const args = [...(record.args ?? []), ...extraArgs];
 
+    // If args contain `--resume <uuid>`, treat that UUID as the claude
+    // session id. This handles process-mode claude sessions that don't go
+    // through the persistent NDJSON extraction path.
+    const resumeIdx = args.indexOf('--resume');
+    if (resumeIdx >= 0 && resumeIdx + 1 < args.length) {
+      const candidate = args[resumeIdx + 1] as string;
+      if (/^[0-9a-f-]{36}$/i.test(candidate)) {
+        record = { ...record, claudeSessionId: candidate };
+        this.storage.update({ id, claudeSessionId: candidate });
+      }
+    }
+
     let spawnFile = file;
     let spawnArgs = args;
     if (process.platform === 'win32') {
