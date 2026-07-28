@@ -48,8 +48,10 @@ export function encodeClaudeProjectPath(
   let encoded: string;
 
   if (isWin) {
-    // Remove drive colon, replace backslash with --
-    encoded = path.replace(/^([A-Za-z]):/, '$1').replace(/\\/g, '--');
+    // Windows: map `:` `\` `_` each to `-`. (Verified against Claude Code's
+    // actual `~/.claude/projects/` directory naming convention.)
+    //   "C:\\wspec\\tired_agent_app" → "C--wspec-tired-agent-app"
+    encoded = path.replace(/[:\\_]/g, '-');
   } else {
     // Strip leading /, replace remaining / with -
     encoded = path.replace(/^\//, '').replace(/\//g, '-');
@@ -74,9 +76,12 @@ export function decodeClaudeProjectPath(
   const isWin = (platform_ ?? process.platform) === 'win32';
 
   if (isWin) {
-    // Restore from -- to \ and add colon after drive letter
-    const withSlashes = encoded.replace(/--/g, '\\');
-    return withSlashes.replace(/^([A-Za-z])/, '$1:');
+    // Decoding is lossy because the encoder collapses `:` `\` `_` into
+    // the same `-`. We do a best-effort decode: the leading `-` after the
+    // drive letter becomes `:`, and every remaining `-` becomes `_`.
+    // (An exact round-trip is impossible; encode/grep-back the file
+    // system name is the only way to recover the original.)
+    return encoded.replace(/^([A-Za-z])-/, '$1:').replace(/-/g, '_');
   } else {
     // Restore from - to /
     return '/' + encoded.replace(/-/g, '/');

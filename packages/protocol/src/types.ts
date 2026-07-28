@@ -402,6 +402,12 @@ export interface ClaudeProjectSession {
   sessionId: string;
   lastModified: number;
   size: number;
+  /**
+   * Human-readable label, derived from the most recent `custom-title`
+   * event in the .jsonl log, or falling back to the auto-generated
+   * `slug` field on the last line. Null when neither could be read.
+   */
+  displayName: string | null;
 }
 
 /** Metadata about a Claude project on disk. */
