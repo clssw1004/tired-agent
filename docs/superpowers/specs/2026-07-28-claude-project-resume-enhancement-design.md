@@ -2,7 +2,11 @@
 
 ## Context
 
-tired-agent 管理远程 agent 上的 `claude` 会话。Claude Code 在 agent 机器上运行时会将会话日志写入 `~/.claude/projects/<encoded-path>/<sessionId>.jsonl`。用户希望用 tired-agent 创建 claude session 时，能扫描 agent 端对应目录的 `.claude/projects/`，列出历史会话并选择 resume。
+tired-agent 管理远程 agent 上的 `claude` 会话。需要完成以下三个关联功能：
+
+1. **创建时 resume** — 选择 `claude` preset/command + cwd 后，扫描 agent 端 `~/.claude/projects/`，列出历史 session 供用户选择 resume
+2. **`--name <label>` 自动注入** — 每次创建 claude session 时自动追加 `--name <sessionLabel>`，使 Claude 本地命名与 tired-agent 一致，方便后续恢复
+3. **已 exit session 恢复** — 在 session 详情页和列表页，对已 exit 的 claude session（有 `claudeSessionId`）提供「恢复」按钮，一键创建新 session 用 `--resume <claudeSessionId> --name <newLabel>` 接续
 
 ## Requirements
 
@@ -10,8 +14,9 @@ tired-agent 管理远程 agent 上的 `claude` 会话。Claude Code 在 agent �
 2. 用户选定工作目录（cwd）后，Flutter 端将原始路径传给后端
 3. 后端在 agent 端编码路径、扫描 `~/.claude/projects/`、列出 session 信息，Flutter 端不感知编码规则
 4. 按 `目录 → session[]` 结构返回，**不读 .jsonl 文件内容**，仅依赖文件名 + `stat`
-5. 用户选取一个 session 后，创建会话时自动追加 `--resume <sessionId>` 到 args
-6. 增强框架必须通用可扩展，后续其他命令也可通过同样机制添加增强
+5. 创建 claude session 时自动注入 `--name <sessionLabel>`
+6. 已 exit 的 claude session 可见 `claudeSessionId`，UI 提供「恢复」按钮
+7. 增强框架必须通用可扩展
 
 ## Backend Changes (tired-agent)
 
@@ -39,7 +44,18 @@ export interface ClaudeProjectInfo {
 
 不暴露 `projectName`（编码名），Flutter 端只看 `displayPath`。
 
-### 2. 路径编码/解码工具
+### 2. 已有类型补充：`claudeSessionId` 暴露到 wire
+
+当前 `Session` 类型（`@tired-agent/protocol`）缺少 `claudeSessionId` 字段，需要补上：
+
+```typescript
+// 在 Session interface 中追加 (两个语言同步)
+claudeSessionId?: string | null;
+```
+
+后端内部 `SessionRecord` 已有此字段，Fastify 直接 JSON 序列化时如果 TS 层面没有类型会丢失。加上后 wire 和 Flutter 端都能收到。
+
+### 3. 路径编码/解码工具
 
 新增 `packages/agent/src/directory/claude-path.ts`：
 
@@ -68,7 +84,7 @@ export function decodeClaudeProjectPath(encoded: string): string;
 | POSIX | `/home/dev/project` | `home-dev-project` |
 | POSIX | `/` | `''` (空字符串，特殊处理) |
 
-### 3. DirectoryService 新增方法
+### 4. DirectoryService 新增方法
 
 `packages/agent/src/directory/types.ts` — `DirectoryService` 接口增加：
 
@@ -95,7 +111,6 @@ async function getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo> {
     entries = await readdir(projectDir, { withFileTypes: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      // 目录不存在 → 空列表
       return { displayPath: cwd, sessions: [] };
     }
     throw err;
@@ -107,9 +122,7 @@ async function getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo> {
   const sessions: ClaudeProjectSession[] = [];
   for (const f of jsonlFiles) {
     const sessionId = f.name.slice(0, -'.jsonl'.length);
-    // UUID 格式校验 (8-4-4-4-12)
     if (!/^[0-9a-f-]{36}$/i.test(sessionId)) continue;
-
     try {
       const stats = await stat(join(projectDir, f.name));
       sessions.push({
@@ -118,13 +131,11 @@ async function getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo> {
         size: stats.size,
       });
     } catch {
-      // 并发删除等情况，跳过
       continue;
     }
   }
 
   sessions.sort((a, b) => b.lastModified - a.lastModified);
-
   return { displayPath: cwd, sessions };
 }
 ```
@@ -135,7 +146,7 @@ async function getClaudeProjects(cwd: string): Promise<ClaudeProjectInfo> {
 - 目录不存在返回空列表而不是 404
 - 按时间倒序排列
 
-### 4. 新路由文件
+### 5. 新路由文件
 
 `packages/agent/src/routes/claude-projects.ts`：
 
@@ -176,25 +187,22 @@ export function registerClaudeProjectsRoutes(
 }
 ```
 
-### 5. App 端注册
+### 6. App 端注册
 
 `packages/agent/src/app.ts` — 新增 import 和注册：
 
 ```typescript
 import { registerClaudeProjectsRoutes } from './routes/claude-projects.js';
-
-// 在 scoped 注册块中追加:
 registerClaudeProjectsRoutes(scoped, directoryService);
 ```
 
-位置在 `registerDirectoryRoutes` 后面即可，因为路径不冲突。
+位置在 `registerDirectoryRoutes` 后面即可。
 
-### 6. Manager 端代理
+### 7. Manager 端代理
 
-`packages/manager/src/routes/proxy.ts` — 新增注册（**必须在** `/agents/:aid/directories` 之前，避免路径冲突）：
+`packages/manager/src/routes/proxy.ts` — 新增注册（必须在 `/agents/:aid/directories` 之前）：
 
 ```typescript
-// Claude projects — 必须在 /directories 通配前注册
 app.get<{ Params: { aid: string }; Querystring: { path?: string } }>(
   '/agents/:aid/directories/claude-projects',
   async (req, reply) => {
@@ -208,11 +216,68 @@ app.get<{ Params: { aid: string }; Querystring: { path?: string } }>(
 );
 ```
 
-查看现有 proxy 代码（第 285-300 行），`/directories/shortcuts` 在 `/directories` 之前注册。新注册放在 `/shortcuts` 附近即可。
+放在现有 `/shortcuts` 路由（第 285 行）附近。
 
 ## Flutter Changes (tired_agent_app)
 
-### 1. Enhancement 框架 (新模块 `lib/enhancements/`)
+### A. 基础改动：claudeSessionId 补全
+
+**`lib/protocol/types.dart`** — `Session` 类追加：
+
+```dart
+class Session {
+  // ... 现有字段
+  final String? claudeSessionId;   // NEW
+
+  const Session({
+    // ... 现有参数
+    this.claudeSessionId,          // NEW
+  });
+
+  factory Session.fromJson(Map<String, dynamic> json) {
+    return Session(
+      // ... 现有字段
+      claudeSessionId: json['claudeSessionId'] as String?,  // NEW
+    );
+  }
+}
+```
+
+### B. `--name <label>` 自动注入（功能 2）
+
+**实现位置：** `ClaudeProjectsEnhancement.modifySpec()` 中。
+
+不论是否选择了 resume session，只要命令是 claude：
+```dart
+Future<SessionSpec> modifySpec(SessionSpec spec, EnhancementContext ctx) async {
+  final List<String> extraArgs = [];
+  
+  // 总是注入 --name <label>
+  if (spec.label != null && spec.label!.isNotEmpty) {
+    extraArgs.addAll(['--name', spec.label!]);
+  }
+  
+  // 如果用户选了 resume session
+  if (ctx.selectedSessionId != null) {
+    extraArgs.addAll(['--resume', ctx.selectedSessionId!]);
+  }
+  
+  if (extraArgs.isEmpty) return spec;
+  return SessionSpec(
+    cmd: spec.cmd,
+    args: [...?spec.args, ...extraArgs],
+    cwd: spec.cwd,
+    env: spec.env,
+    cols: spec.cols,
+    rows: spec.rows,
+    label: spec.label,
+    mode: spec.mode,
+    executionMode: spec.executionMode,
+  );
+}
+```
+
+### C. Enhancement 框架（新模块 `lib/enhancements/`）
 
 ```
 lib/enhancements/
@@ -228,19 +293,13 @@ lib/enhancements/
 **`types.dart` — 激活条件和增强点：**
 
 ```dart
-/// 增强点 — 决定 widget 在哪个时机注入
 enum EnhancementPoint {
-  /// 目录选择后展示
-  directorySelected,
-  /// 提交前修改 spec
-  beforeSubmit,
+  directorySelected,   // 目录选择后展示
+  beforeSubmit,        // 提交前修改 spec
 }
 
-/// 增强激活条件
 class EnhancementActivation {
-  /// 匹配的 preset id 列表（如 ['claude']）
   final List<String> presetIds;
-  /// 匹配的命令正则（如 RegExp(r'^claude( |$)')）
   final Pattern? commandPattern;
   
   const EnhancementActivation({
@@ -264,10 +323,7 @@ abstract class SessionEnhancement {
   EnhancementActivation get activation;
   EnhancementPoint get point;
   
-  /// 在增强点触发时构建 UI 片段
   Widget buildWidget(BuildContext context, EnhancementContext ctx);
-  
-  /// 提交前修改 SessionSpec
   Future<SessionSpec> modifySpec(SessionSpec spec, EnhancementContext ctx);
 }
 
@@ -275,86 +331,27 @@ class EnhancementRegistry {
   static final List<SessionEnhancement> _items = [];
   static void register(SessionEnhancement e) => _items.add(e);
   
-  static List<SessionEnhancement> forPoint(EnhancementPoint point, String cmd, BuiltinPreset? preset) =>
-    _items.where((e) =>
-      e.point == point && e.activation.matches(cmd, preset)
-    ).toList();
+  static List<SessionEnhancement> forPoint(
+    EnhancementPoint point, String cmd, BuiltinPreset? preset,
+  ) => _items.where((e) =>
+    e.point == point && e.activation.matches(cmd, preset)
+  ).toList();
 }
 ```
 
-**`enhancement_context.dart` — 页面状态上下文：**
+**`enhancement_context.dart`：**
 
 ```dart
 class EnhancementContext {
   String? cwd;
   String? selectedSessionId;
-  VoidCallback? onStateChanged;  // 通知页面刷新
+  String? profileId;        // 从页面传入
+  String? agentId;          // 从页面传入
+  VoidCallback? onStateChanged;
 }
 ```
 
-### 2. Protocol 类型 (Dart 侧)
-
-`lib/protocol/types.dart` 新增：
-
-```dart
-class ClaudeProjectSession {
-  final String sessionId;
-  final int lastModified;
-  final int size;
-  const ClaudeProjectSession({required this.sessionId, required this.lastModified, required this.size});
-  
-  factory ClaudeProjectSession.fromJson(Map<String, dynamic> json) => ClaudeProjectSession(
-    sessionId: json['sessionId'] as String,
-    lastModified: (json['lastModified'] as num).toInt(),
-    size: (json['size'] as num).toInt(),
-  );
-}
-
-class ClaudeProjectInfo {
-  final String displayPath;
-  final List<ClaudeProjectSession> sessions;
-  const ClaudeProjectInfo({required this.displayPath, required this.sessions});
-  
-  factory ClaudeProjectInfo.fromJson(Map<String, dynamic> json) => ClaudeProjectInfo(
-    displayPath: json['displayPath'] as String,
-    sessions: (json['sessions'] as List<dynamic>)
-      .map((e) => ClaudeProjectSession.fromJson(e as Map<String, dynamic>))
-      .toList(),
-  );
-}
-```
-
-### 3. Transport 层
-
-`lib/protocol/http_sse_transport.dart` 新增方法：
-
-```dart
-Future<ClaudeProjectInfo> getClaudeProjects(
-  ServerRef ref, {
-  required String path,
-  String? agentId,
-}) async {
-  final data = await _request(
-    'GET',
-    _claudeProjectsUrl(ref.baseUrl, agentId: agentId) + '?path=${Uri.encodeComponent(path)}',
-    token: ref.token,
-    agentId: agentId,
-  );
-  return ClaudeProjectInfo.fromJson(data as Map<String, dynamic>);
-}
-```
-
-```dart
-String _claudeProjectsUrl(String baseUrl, {String? agentId}) {
-  final base = _ensureBaseUrl(baseUrl);
-  if (agentId != null && agentId.isNotEmpty) {
-    return '$base/api/v1/agents/${Uri.encodeComponent(agentId)}/directories/claude-projects';
-  }
-  return '$base/api/v1/directories/claude-projects';
-}
-```
-
-### 4. Claude Projects Enhancement 实现
+### D. Claude Projects Enhancement（功能 1 创建页）
 
 `lib/enhancements/claude_projects/claude_projects_enhancement.dart`：
 
@@ -362,13 +359,11 @@ String _claudeProjectsUrl(String baseUrl, {String? agentId}) {
 class ClaudeProjectsEnhancement extends SessionEnhancement {
   @override
   String get id => 'claude-projects';
-  
   @override
   EnhancementActivation get activation => EnhancementActivation(
     presetIds: ['claude'],
     commandPattern: RegExp(r'^claude( |$)'),
   );
-  
   @override
   EnhancementPoint get point => EnhancementPoint.directorySelected;
   
@@ -377,8 +372,8 @@ class ClaudeProjectsEnhancement extends SessionEnhancement {
     if (ctx.cwd == null || ctx.cwd!.isEmpty) return const SizedBox.shrink();
     return ClaudeProjectsPicker(
       cwd: ctx.cwd!,
-      profileId: ctx.profileId,
-      agentId: ctx.agentId,
+      profileId: ctx.profileId!,
+      agentId: ctx.agentId!,
       onSelected: (sessionId) {
         ctx.selectedSessionId = sessionId;
         ctx.onStateChanged?.call();
@@ -388,11 +383,19 @@ class ClaudeProjectsEnhancement extends SessionEnhancement {
   
   @override
   Future<SessionSpec> modifySpec(SessionSpec spec, EnhancementContext ctx) async {
-    if (ctx.selectedSessionId == null) return spec;
-    final resumeArgs = ['--resume', ctx.selectedSessionId!];
+    final List<String> extraArgs = [];
+    // --name 总是注入
+    if (spec.label != null && spec.label!.isNotEmpty) {
+      extraArgs.addAll(['--name', spec.label!]);
+    }
+    // --resume 仅当用户选了 session
+    if (ctx.selectedSessionId != null) {
+      extraArgs.addAll(['--resume', ctx.selectedSessionId!]);
+    }
+    if (extraArgs.isEmpty) return spec;
     return SessionSpec(
       cmd: spec.cmd,
-      args: [...?spec.args, ...resumeArgs],
+      args: [...?spec.args, ...extraArgs],
       cwd: spec.cwd,
       env: spec.env,
       cols: spec.cols,
@@ -405,60 +408,31 @@ class ClaudeProjectsEnhancement extends SessionEnhancement {
 }
 ```
 
-### 5. Claude Projects Picker UI
+### E. Claude Projects Picker UI（创建页组件）
 
 `lib/enhancements/claude_projects/claude_projects_picker.dart`：
 
-一个嵌入式的 widget（非 full-screen modal），展示在目录选择器下方：
+嵌入在目录选择器下方的可折叠面板：
+- 标题「Claude 项目」+ session 数量
+- 展开后按时间倒序排列
+- 每行：相对时间 + 文件大小
+- 点击选中 → 预览区 args 更新
+- 点击同一条取消选中
 
-```dart
-class ClaudeProjectsPicker extends StatefulWidget {
-  final String cwd;
-  final String profileId;
-  final String agentId;
-  final ValueChanged<String> onSelected;
-  // ...
-}
-
-// State 逻辑:
-// 1. initState: 调用 transport.getClaudeProjects(ref, path: cwd, agentId)
-// 2. 加载中: 显示小 loading indicator
-// 3. 加载完成:
-//    - sessions 为空 → "No previous sessions" (collapsed)
-//    - 有 sessions → 展开显示 session 列表
-// 4. 每行: 相对时间 + 文件大小
-// 5. 选中: 高亮，回调 onSelected
-```
-
-**交互设计：**
-- 目录选择器下方显示一个折叠面板
-- 标题「Claude Projects」+ session 数量
-- 展开后按时间倒序列 session
-- 点击选中 → 预览区 args 更新为 `--resume <uuid>`
-- 点击同一条取消选中 → 回到纯 claude 模式
-
-### 6. 集成到 CreateSessionScreen
-
-`create_session_screen.dart` 改动：
-
-1. 在 `initState` 中初始化 EnhancementContext
-2. 在 preset/command 切换时重新计算激活的 enhancement
-3. 在目录选择器下方插入 `directorySelected` 点的 widget
-4. 在 `_submit()` 中调用 `beforeSubmit` 点的 `modifySpec()`
+### F. 集成到 CreateSessionScreen
 
 ```dart
 // 新增状态
 final EnhancementContext _enhancementCtx = EnhancementContext();
 List<SessionEnhancement> _activeEnhancements = [];
 
-// preset 或 command 变化时更新
 void _updateEnhancements() {
   _activeEnhancements = EnhancementRegistry.forPoint(
     EnhancementPoint.directorySelected, _cmd, _selectedPreset,
   );
 }
 
-// 目录选择后的回调
+// 目录选择后回调
 void _onDirectoryPicked(String path) {
   _cwdController.text = path;
   _enhancementCtx.cwd = path;
@@ -468,7 +442,7 @@ void _onDirectoryPicked(String path) {
 
 // build 中目录选择器下方插入:
 if (_activeEnhancements.any((e) => e.point == EnhancementPoint.directorySelected)) {
-  for (final e in _activeEnhancements.where((e) => e.point == EnhancementPoint.directorySelected)) {
+  for (final e in _activeEnhancements) {
     e.buildWidget(context, _enhancementCtx);
   }
 }
@@ -479,9 +453,95 @@ for (final e in EnhancementRegistry.forPoint(EnhancementPoint.beforeSubmit, _cmd
 }
 ```
 
-### 7. 国际化
+### G. 已 exit session 恢复按钮（功能 3）
 
-`lib/utils/app_strings.dart` 新增 keys（带中文翻译）：
+涉及两个文件：
+
+**`lib/widgets/session_card.dart`** — SessionCard 增加 resume 按钮：
+
+```dart
+// 在模式 badge 右侧按钮区（现有 kill/delete 旁边）追加：
+if (session.mode == SessionMode.persistent &&
+    session.status == SessionStatus.exited &&
+    session.claudeSessionId != null)
+  _ActionButton(
+    icon: '▶',
+    label: AppStrings.of.sessionResumeBtn,
+    color: c.success,
+    onTap: onResume!,
+  ),
+```
+
+`SessionCard` 新增 `onResume` 回调。
+
+**`lib/screens/session_detail_screen.dart`** — 详情页 AppBar 追加 resume 按钮：
+
+```dart
+// 在现有 kill/delete 判断后追加（line 264–275 附近）：
+if (isPersistent &&
+    sessionStatus == SessionStatus.exited &&
+    _session!.claudeSessionId != null)
+  IconButton(
+    icon: Icon(Icons.replay, color: c.success),
+    tooltip: AppStrings.of.sessionResumeTooltip,
+    onPressed: _requestResume,
+  ),
+```
+
+`_requestResume` 方法：
+
+```dart
+Future<void> _requestResume() async {
+  // 生成新 label
+  final newLabel = _session!.label != null
+      ? '${_session!.label}-r'
+      : _generateDefaultLabel();
+  
+  final spec = SessionSpec(
+    cmd: 'claude',
+    args: ['--name', newLabel, '--resume', _session!.claudeSessionId!],
+    cwd: _session!.cwd,
+    cols: _session!.cols,
+    rows: _session!.rows,
+    label: newLabel,
+    mode: SessionMode.persistent,
+  );
+  
+  try {
+    final newSession = await _conn!.transport.createSession(
+      _mgrRef(), spec, agentId: widget.agentId,
+    );
+    if (mounted) {
+      context.replace('/session/${widget.profileId}/${widget.agentId}/${newSession.id}');
+    }
+  } catch (e) {
+    // show error snackbar
+  }
+}
+```
+
+**`lib/screens/server_sessions_screen.dart`** — 列表页 resume 回调连接：
+
+在构建 `SessionCard` 时传入 `onResume`：
+```dart
+SessionCard(
+  session: session,
+  onTap: () => context.push('/session/$profileId/$agentId/${session.id}'),
+  onKill: session.status != SessionStatus.exited ? () => _requestKill(session) : null,
+  onDelete: session.status == SessionStatus.exited ? () => _requestDelete(session) : null,
+  onResume: (session.mode == SessionMode.persistent && 
+             session.status == SessionStatus.exited && 
+             session.claudeSessionId != null)
+      ? () => _requestResume(session) : null,
+  // ...
+)
+```
+
+`_requestResume` 方法同详情页逻辑。
+
+### H. 国际化
+
+`lib/utils/app_strings.dart` 新增 keys：
 
 | Key | 中文 |
 |-----|------|
@@ -489,10 +549,12 @@ for (final e in EnhancementRegistry.forPoint(EnhancementPoint.beforeSubmit, _cmd
 | `claudeProjectsSessions` | "{n} 个会话" |
 | `claudeProjectsNoSessions` | "暂无历史会话" |
 | `claudeProjectsSelectToResume` | "选择会话继续" |
-| `claudeProjectsSessionCount` | "{n} 个 session" |
+| `sessionResumeBtn` | "恢复" |
+| `sessionResumeTooltip` | "恢复此会话" |
 
 ## 完整数据流
 
+### 创建页面 resume 流程
 ```
 用户: 选 Claude preset
   → EnhancementRegistry.forPoint(directorySelected, 'claude', claudePreset)
@@ -500,67 +562,59 @@ for (final e in EnhancementRegistry.forPoint(EnhancementPoint.beforeSubmit, _cmd
 
 用户: 选 cwd
   → _enhancementCtx.cwd = '/home/dev/project-a'
-  → ClaudeProjectsPicker 出现
-
-Picker initState:
-  transport.getClaudeProjects(ref, path: '/home/dev/project-a', agentId: 'xxx')
-  ─────────────────────────────────────────────────────────►
-  Manager: GET /agents/xxx/directories/claude-projects?path=/home/dev/project-a
-  ─────────────────────────────────────────────────────────►
-  Agent: GET /directories/claude-projects?path=/home/dev/project-a
-    → service.getClaudeProjects('/home/dev/project-a')
-    → encodeClaudeProjectPath → 'home-dev-project-a'
-    → stat ~/.claude/projects/home-dev-project-a/*.jsonl
-    → return { displayPath, sessions: [{sessionId, lastModified, size}] }
-  ◄─────────────────────────────────────────────────────────
-  Manager 透传
-  ◄─────────────────────────────────────────────────────────
-  → 渲染 session 列表
-
-用户: 选中 session
-  → _enhancementCtx.selectedSessionId = '<uuid>'
-  → 预览区更新为 "claude --resume <uuid>"
+  → ClaudeProjectsPicker 出现 → 加载 session 列表
+  → 选中 session → _enhancementCtx.selectedSessionId = '<uuid>'
 
 用户: Launch
-  → EnhancementRegistry.forPoint(beforeSubmit, ...)
   → ClaudeProjectsEnhancement.modifySpec(spec, ctx)
-  → args 注入 ['--resume', '<uuid>']
+  → args = ['--name', 'project-a-20260728', '--resume', '<uuid>']
   → transport.createSession(spec)
+```
+
+### 已 exit session 恢复流程
+```
+用户: 在 session 列表/详情页看到已 exit 的 claude session
+  → 检测: mode==persistent && status==exited && claudeSessionId!=null
+  → 显示「恢复」按钮
+
+用户: 点击「恢复」
+  → 生成新 label（旧 label + "-r"）
+  → 创建 SessionSpec:
+      cmd: 'claude'
+      args: ['--name', 'oldLabel-r', '--resume', '<claudeSessionId>']
+      mode: SessionMode.persistent
+  → transport.createSession(spec)
+  → 跳转到新 session 详情页
 ```
 
 ## 扩展性示例
 
 ```dart
-// 添加 Git 增强
-class GitBranchEnhancement extends SessionEnhancement {
-  @override
-  String get id => 'git-branch';
-  @override
-  EnhancementActivation get activation => EnhancementActivation(presetIds: ['git', 'dev']);
-  // ...
-}
-
-// 在 main.dart 或任何初始化点注册
+// 在 main.dart 或初始化点注册
 EnhancementRegistry.register(ClaudeProjectsEnhancement());
+
+// 后续轻松追加：
 EnhancementRegistry.register(GitBranchEnhancement());
+EnhancementRegistry.register(VenvDetectEnhancement());
 ```
 
 ## Verification
 
 ### 后端测试 (agent):
 - 编码/解码函数测试（Windows + POSIX）
-- 模拟 `~/.claude/projects/` 目录，验证 session 列表正确
-- 大 .jsonl 文件验证只调用 stat 不读内容
-- 边缘情况：空目录、无 .jsonl、目录不存在
+- 模拟 `~/.claude/projects/` 目录验证 session 列表
+- 大 .jsonl 只 stat 不读内容
+- 空目录、无 .jsonl、目录不存在等边缘情况
 
 ### Flutter 测试:
-- EnhancementActivation.matches 测试（preset id、命令正则）
-- EnhancementRegistry 注册和查询
-- ClaudeProjectsEnhancement.buildWidget 条件性渲染
-- modifySpec 注入 --resume
-- 空 cwd 时增强不触发
+- EnhancementActivation.matches （preset id、命令正则）
+- EnhancementRegistry 注册/查询
+- modifySpec 注入 --name 和 --resume
+- 空 cwd 时不触发增强
+- Session.fromJson 解析 claudeSessionId
+- 会话卡片和详情页 resume 按钮可见性条件
 
 ### 集成验证:
-1. 在 agent 上已有 claude session 的情况下扫描
-2. 返回的 session 按时间倒序排列
-3. 选中后 Launch，创建 session 的 args 包含 `--resume <uuid>`
+1. 创建 Claude session，验证 args 包含 `--name <label>`
+2. 已有 claude session，支持在创建页选择 resume
+3. Exit 后的 claude session 显示恢复按钮，点击后创建新 session 接续
