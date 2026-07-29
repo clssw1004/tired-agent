@@ -337,12 +337,14 @@ export class SessionManager {
         this.broadcast(s, { type: 'output', offset: newOffset - bytes.length, data: bytes });
         this.broadcast(s, { type: 'state', record: updated });
 
-        outputBuf += data;
-        const sid = extractClaudeSessionId(outputBuf);
-        if (sid && sid !== s.claudeSessionId) {
-          s.claudeSessionId = sid;
-          // Persist so --resume survives an agent restart.
-          try { this.storage.update({ id, claudeSessionId: sid }); } catch { /* non-fatal */ }
+        if (!s.claudeSessionId) {
+          outputBuf += data;
+          const sid = extractClaudeSessionId(outputBuf);
+          if (sid) {
+            s.claudeSessionId = sid;
+            // Persist so --resume survives an agent restart.
+            try { this.storage.update({ id, claudeSessionId: sid }); } catch { /* non-fatal */ }
+          }
         }
       } catch (err) {
         log.error({ err, sessionId: id }, 'error handling persistent stdout');
@@ -389,34 +391,7 @@ export class SessionManager {
     const file = normalizeCmd(record.cmd);
     const args = [...(record.args ?? []), ...extraArgs];
 
-    // If args contain `--resume <uuid>`, treat that UUID as the claude
-    // session id. This handles process-mode claude sessions that don't go
-    // through the persistent NDJSON extraction path.
-    const resumeIdx = args.indexOf('--resume');
-    if (resumeIdx >= 0 && resumeIdx + 1 < args.length) {
-      const candidate = args[resumeIdx + 1] as string;
-      if (/^[0-9a-f-]{36}$/i.test(candidate)) {
-        record = { ...record, claudeSessionId: candidate };
-        this.storage.update({ id, claudeSessionId: candidate });
-      }
-    }
-
-    // If args contain `--name <label>`, store it in extra.claudeName
-    // so the server-side session record carries the label the user set.
-    const nameIdx = args.indexOf('--name');
-    if (nameIdx >= 0 && nameIdx + 1 < args.length) {
-      const claudeName = args[nameIdx + 1] as string;
-      if (typeof claudeName === 'string' && claudeName.length > 0) {
-        record = {
-          ...record,
-          extra: { ...record.extra, claudeName },
-        };
-        this.storage.update({
-          id,
-          extra: record.extra,
-        });
-      }
-    }
+    record = this._applyArgsToRecord(id, record, args);
 
     let spawnFile = file;
     let spawnArgs = args;
@@ -480,6 +455,36 @@ export class SessionManager {
     log.info({ sessionId: id, pid: pty.pid, cmd: record.cmd }, 'session created');
 
     return started;
+  }
+
+  /**
+   * Parse `--resume` and `--name` arguments from the command-line args and
+   * apply them to the session record (claudeSessionId / extra.claudeName).
+   * Mutates the storage row and returns the updated record.
+   */
+  private _applyArgsToRecord(id: string, record: SessionRecord, args: string[]): SessionRecord {
+    const resumeIdx = args.indexOf('--resume');
+    if (resumeIdx >= 0 && resumeIdx + 1 < args.length) {
+      const candidate = args[resumeIdx + 1] as string;
+      if (/^[0-9a-f-]{36}$/i.test(candidate)) {
+        record = { ...record, claudeSessionId: candidate };
+        this.storage.update({ id, claudeSessionId: candidate });
+      }
+    }
+
+    const nameIdx = args.indexOf('--name');
+    if (nameIdx >= 0 && nameIdx + 1 < args.length) {
+      const claudeName = args[nameIdx + 1] as string;
+      if (typeof claudeName === 'string' && claudeName.length > 0) {
+        record = {
+          ...record,
+          extra: { ...record.extra, claudeName },
+        };
+        this.storage.update({ id, extra: record.extra });
+      }
+    }
+
+    return record;
   }
 
   private _killPty(pty: IPty, pid: number | null): void {
@@ -590,8 +595,9 @@ function buildEnv(extra: Record<string, string> | null): Record<string, string> 
 
 /**
  * Extract Claude's session_id from NDJSON output.
- * Scans for `"subtype":"init"` or `"type":"result"` events that contain
- * `"session_id":"..."`. Cached — only scans new data.
+ * Scans for `"session_id":"..."` in the accumulated output buffer.
+ * The caller stops calling once found (`s.claudeSessionId` is set),
+ * so this only runs while the session_id is unknown.
  */
 function extractClaudeSessionId(output: string): string | null {
   // Look for: ...,"session_id":"<hex>",...
