@@ -30,6 +30,10 @@ export interface SessionRecord {
    * the NDJSON stream. Persisted so `--resume` survives an agent restart.
    */
   claudeSessionId: string | null;
+  /**
+   * Extra KV metadata (JSON at rest). e.g. `{ claudeName: "terminal-theme" }`.
+   */
+  extra: Record<string, unknown> | null;
 }
 
 /** Build a SessionRecord from a creation spec + generated id. */
@@ -54,5 +58,6 @@ export function createSessionRecord(
     label: spec.label ?? null,
     mode: spec.mode ?? null,
     claudeSessionId: null,
+    extra: spec.extra ?? null,
   };
 }

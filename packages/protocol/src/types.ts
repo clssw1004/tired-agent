@@ -87,6 +87,11 @@ export interface SessionSpec {
    * @default 'auto'
    */
   executionMode?: ExecutionMode;
+  /**
+   * Extra metadata for the session (e.g. claudeName for claude sessions).
+   * Free-form KV store, serialized to JSON at rest.
+   */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -120,6 +125,11 @@ export interface Session {
    * agent restarts.
    */
   claudeSessionId?: string | null;
+  /**
+   * Extra metadata, e.g. `{ claudeName: "terminal-theme" }` for claude
+   * sessions. Free-form KV, serialized to JSON at rest.
+   */
+  extra?: Record<string, unknown> | null;
 }
 
 /**
