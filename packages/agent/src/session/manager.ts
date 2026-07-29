@@ -181,7 +181,7 @@ export class SessionManager {
     return live.get(id)?.record ?? this.storage.get(id);
   }
 
-  /** Returns SessionRecord[] — claudeSessionId is serialized as-is by Fastify. */
+  /** Returns SessionRecord[] — extra.claudeSessionId is serialized as-is by Fastify. */
   list(): SessionRecord[] {
     const byId = new Map<string, SessionRecord>();
     for (const rec of this.storage.list()) byId.set(rec.id, rec);
@@ -343,7 +343,8 @@ export class SessionManager {
           if (sid) {
             s.claudeSessionId = sid;
             // Persist so --resume survives an agent restart.
-            try { this.storage.update({ id, claudeSessionId: sid }); } catch { /* non-fatal */ }
+            const extra = { ...s.record.extra, claudeSessionId: sid };
+            try { this.storage.update({ id, extra }); } catch { /* non-fatal */ }
           }
         }
       } catch (err) {
@@ -463,12 +464,13 @@ export class SessionManager {
    * Mutates the storage row and returns the updated record.
    */
   private _applyArgsToRecord(id: string, record: SessionRecord, args: string[]): SessionRecord {
+    let extra = { ...record.extra };
+
     const resumeIdx = args.indexOf('--resume');
     if (resumeIdx >= 0 && resumeIdx + 1 < args.length) {
       const candidate = args[resumeIdx + 1] as string;
       if (/^[0-9a-f-]{36}$/i.test(candidate)) {
-        record = { ...record, claudeSessionId: candidate };
-        this.storage.update({ id, claudeSessionId: candidate });
+        extra = { ...extra, claudeSessionId: candidate };
       }
     }
 
@@ -476,14 +478,14 @@ export class SessionManager {
     if (nameIdx >= 0 && nameIdx + 1 < args.length) {
       const claudeName = args[nameIdx + 1] as string;
       if (typeof claudeName === 'string' && claudeName.length > 0) {
-        record = {
-          ...record,
-          extra: { ...record.extra, claudeName },
-        };
-        this.storage.update({ id, extra: record.extra });
+        extra = { ...extra, claudeName };
       }
     }
 
+    record = { ...record, extra };
+    if (Object.keys(extra).length > 0) {
+      this.storage.update({ id, extra });
+    }
     return record;
   }
 
@@ -560,7 +562,7 @@ export class SessionManager {
           record: rec,
           pty: null,
           subscribers: new Set(),
-          claudeSessionId: rec.claudeSessionId ?? undefined,
+          claudeSessionId: (rec.extra?.claudeSessionId as string | undefined) ?? undefined,
         });
         rehydrated++;
         continue;

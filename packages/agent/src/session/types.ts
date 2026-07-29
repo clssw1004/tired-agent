@@ -26,12 +26,7 @@ export interface SessionRecord {
   label: string | null;
   mode: SessionMode | null;
   /**
-   * Persistent (chat) mode only: Claude's internal session_id extracted from
-   * the NDJSON stream. Persisted so `--resume` survives an agent restart.
-   */
-  claudeSessionId: string | null;
-  /**
-   * Extra KV metadata (JSON at rest). e.g. `{ claudeName: "terminal-theme" }`.
+   * Extra KV metadata (JSON at rest). e.g. `{ claudeName: "terminal-theme", claudeSessionId: "uuid" }`.
    */
   extra: Record<string, unknown> | null;
 }
@@ -57,7 +52,6 @@ export function createSessionRecord(
     rows: spec.rows ?? 24,
     label: spec.label ?? null,
     mode: spec.mode ?? null,
-    claudeSessionId: null,
     extra: spec.extra ?? null,
   };
 }

@@ -120,13 +120,7 @@ export interface Session {
   /** @default 'process' */
   mode?: SessionMode;
   /**
-   * Claude's internal session_id, present for persistent (chat) sessions.
-   * Extracted from the NDJSON stream and stored so `--resume` survives
-   * agent restarts.
-   */
-  claudeSessionId?: string | null;
-  /**
-   * Extra metadata, e.g. `{ claudeName: "terminal-theme" }` for claude
+   * Extra metadata, e.g. `{ claudeName: "terminal-theme", claudeSessionId: "uuid" }` for claude
    * sessions. Free-form KV, serialized to JSON at rest.
    */
   extra?: Record<string, unknown> | null;

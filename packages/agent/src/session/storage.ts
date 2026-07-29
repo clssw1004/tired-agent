@@ -85,12 +85,10 @@ export function createSqliteStorage(dataDir: string): Storage {
         rows        INTEGER NOT NULL DEFAULT 24,
         label       TEXT,
         mode        TEXT DEFAULT 'process',
-        claudeSessionId TEXT,
         extra       TEXT
       );
     `);
     try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'process\''); } catch { /* already exists */ }
-    try { _db.exec('ALTER TABLE sessions ADD COLUMN claudeSessionId TEXT'); } catch { /* already exists */ }
     try { _db.exec('ALTER TABLE sessions ADD COLUMN extra TEXT'); } catch { /* already exists */ }
     return _db;
   }
@@ -102,13 +100,13 @@ export function createSqliteStorage(dataDir: string): Storage {
 
   function insert(s: SessionRecord) {
     db().prepare(`
-      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode,claudeSessionId,extra)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode,extra)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       s.id, s.cmd, JSON.stringify(s.args), s.cwd,
       s.env ? JSON.stringify(s.env) : null, s.status,
       s.pid, s.exitCode, s.createdAt, s.exitedAt,
-      s.byteOffset, s.cols, s.rows, s.label, s.mode, s.claudeSessionId,
+      s.byteOffset, s.cols, s.rows, s.label, s.mode,
       s.extra ? JSON.stringify(s.extra) : null,
     );
   }
@@ -232,7 +230,6 @@ export function createSqliteStorage(dataDir: string): Storage {
       cols: r['cols'], rows: r['rows'],
       label: r['label'] ?? null,
       mode: (r['mode'] as SessionMode | null) ?? null,
-      claudeSessionId: r['claudeSessionId'] ?? null,
       extra: r['extra'] ? JSON.parse(r['extra']) : null,
     };
   }
