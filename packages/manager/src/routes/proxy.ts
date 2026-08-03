@@ -8,6 +8,7 @@
  *   POST   /agents/:aid/sessions                → create session
  *   GET    '/agents/:aid/sessions/:sid           → get session metadata
  *   DELETE /agents/:aid/sessions/:sid           → kill/delete session
+ *   PATCH  /agents/:aid/sessions/:sid           → update session metadata
  *   POST   /agents/:aid/sessions/:sid/input     → send input
  *   POST   /agents/:aid/sessions/:sid/resize    → resize PTY
  *   GET    '/agents/:aid/sessions/:sid/output    → fetch historical output
@@ -47,7 +48,7 @@ function buildAgentUrl(base: string, path: string, token: string): string {
 async function proxyJson(
   storage: Storage,
   aid: string | undefined,
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   upstreamPath: string,
   body: unknown,
   reply: FastifyReply,
@@ -64,7 +65,7 @@ async function proxyJson(
 
   const url = buildAgentUrl(agent.baseUrl, upstreamPath, agent.token);
   const init: RequestInit = { method };
-  if (method === 'POST') {
+  if (method === 'POST' || method === 'PATCH') {
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body ?? {});
   }
@@ -125,6 +126,21 @@ export function registerProxyRoutes(app: FastifyInstance, storage: Storage): voi
         'DELETE',
         `/api/v1/sessions/${encodeURIComponent(req.params.sid)}`,
         undefined,
+        reply,
+      );
+    },
+  );
+
+  // ── Update session metadata ─────────────────────────────────────────
+  app.patch<{ Params: { aid: string; sid: string } }>(
+    '/agents/:aid/sessions/:sid',
+    async (req, reply) => {
+      return proxyJson(
+        storage,
+        req.params.aid,
+        'PATCH',
+        `/api/v1/sessions/${encodeURIComponent(req.params.sid)}`,
+        req.body,
         reply,
       );
     },
