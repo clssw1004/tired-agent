@@ -4,6 +4,7 @@
  *   GET    /manager/agents             → list registered agents (no tokens)
  *   POST   /manager/agents             → register a new agent (manual)
  *   DELETE /manager/agents/:id         → unregister an agent
+ *   PATCH  /manager/agents/:id         → update agent name/url/token
  *   POST   /manager/agents/register    → agent self-registration (public)
  *
  * Self-registration is public (no session required) because the agent
@@ -35,6 +36,14 @@ const AddAgentSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.string().url(),
   token: z.string().min(1),
+});
+
+const UpdateAgentSchema = z.object({
+  name: z.string().min(1).optional(),
+  baseUrl: z.string().url().optional(),
+  token: z.string().min(1).optional(),
+}).refine((d) => d.name !== undefined || d.baseUrl !== undefined || d.token !== undefined, {
+  message: 'At least one of name, baseUrl, or token must be provided',
 });
 
 const RegisterAgentSchema = z.object({
@@ -117,6 +126,32 @@ export function registerAgentRoutes(app: FastifyInstance, storage: Storage): voi
       }
       storage.deleteAgent(req.params.id);
       log.info({ agentId: req.params.id, name: agent.name }, 'agents: deleted');
+      return reply.code(200).send({ ok: true });
+    },
+  );
+
+  // ── Update agent ─────────────────────────────────────────────────
+  app.patch<{ Params: { id: string } }>(
+    '/manager/agents/:id',
+    async (req, reply) => {
+      const agent = storage.getAgent(req.params.id);
+      if (!agent) {
+        log.warn({ agentId: req.params.id }, 'agents: update — not found');
+        return reply.code(404).send({
+          error: { code: 'not_found', message: 'agent not found' },
+        });
+      }
+
+      const parsed = UpdateAgentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        log.warn({ err: parsed.error.message }, 'agents: update — invalid request');
+        return reply.code(400).send({
+          error: { code: 'invalid_request', message: parsed.error.message },
+        });
+      }
+
+      storage.updateAgent(req.params.id, parsed.data);
+      log.info({ agentId: req.params.id }, 'agents: updated');
       return reply.code(200).send({ ok: true });
     },
   );

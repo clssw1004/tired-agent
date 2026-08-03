@@ -104,6 +104,11 @@ export interface Storage {
   updateAgentPlatform(id: string, os: string, arch: string, release: string): void;
   /** Update the agent's software version. */
   updateAgentVersion(id: string, version: string): void;
+  /**
+   * Generic partial update for an agent's editable fields.
+   * Returns `true` if the agent existed, `false` otherwise.
+   */
+  updateAgent(id: string, data: { name?: string; baseUrl?: string; token?: string }): boolean;
   // ── sessions ──
   createSession(sessionTtlMs: number, refreshTtlMs: number): Session;
   /** Return session if `token` is the active sessionToken and not expired. */
@@ -395,6 +400,29 @@ export function createStorage(dataDir: string): Storage {
     log.info({ agentId: id, version }, 'storage: agent version updated');
   }
 
+  function updateAgent(
+    id: string,
+    data: { name?: string; baseUrl?: string; token?: string },
+  ): boolean {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (data.name !== undefined) { fields.push('name=?'); values.push(data.name); }
+    if (data.baseUrl !== undefined) { fields.push('baseUrl=?'); values.push(data.baseUrl); }
+    if (data.token !== undefined) { fields.push('token=?'); values.push(data.token); }
+    if (!fields.length) return false;
+
+    values.push(id);
+    const r = db().prepare(
+      `UPDATE manager_agents SET ${fields.join(',')} WHERE id=?`,
+    ).run(...values);
+    if (r.changes === 0) {
+      log.warn({ agentId: id }, 'storage: updateAgent — not found');
+      return false;
+    }
+    log.info({ agentId: id, fields: fields.map((f) => f.replace('=?', '')) }, 'storage: agent updated');
+    return true;
+  }
+
   /** 通过 bearer token 查找 Agent（用于心跳认证）。 */
   function findAgentByToken(token: string): Agent | undefined {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -632,6 +660,7 @@ export function createStorage(dataDir: string): Storage {
     updateAgentStatus,
     updateAgentPlatform,
     updateAgentVersion,
+    updateAgent,
     createSession,
     getSession,
     findSessionByRefreshToken,

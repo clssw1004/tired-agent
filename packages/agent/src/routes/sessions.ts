@@ -35,6 +35,12 @@ const ResizeSchema = z.object({
   rows: z.number().int().min(1).max(200),
 });
 
+const UpdateSessionSchema = z.object({
+  label: z.string().optional(),
+}).refine((d) => d.label !== undefined, {
+  message: 'At least one field to update is required',
+});
+
 const OutputQuerySchema = z.object({
   from: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(10 * 1024 * 1024).optional(),
@@ -158,6 +164,32 @@ export function registerSessionsRoutes(
           error: { code: 'RESIZE_ERROR', message: (err as Error).message },
         });
       }
+    },
+  );
+
+  // ── Update session metadata ───────────────────────────────────────
+  app.patch<{ Params: { id: string } }>(
+    '/sessions/:id',
+    async (req, reply) => {
+      const { id } = req.params;
+      const session = manager.get(id);
+      if (!session) {
+        return reply.code(404).send({
+          error: { code: 'NOT_FOUND', message: `Session ${id} not found` },
+        });
+      }
+
+      const parsed = UpdateSessionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: { code: 'VALIDATION_ERROR', message: parsed.error.message },
+        });
+      }
+
+      storage.update({ id, ...parsed.data });
+      const updated = manager.get(id);
+      log.info({ sessionId: id, label: parsed.data.label }, 'PATCH /sessions/:id → updated');
+      return reply.code(200).send(updated);
     },
   );
 
