@@ -21,7 +21,7 @@ import type {
 } from '@tired-agent/protocol';
 
 import { createApp } from '../src/app.js';
-import { createSqliteStorage } from '../src/session/storage.js';
+import { createFileStorage } from '../src/session/storage.js';
 import type { Storage } from '../src/session/storage.js';
 import { SessionManager } from '../src/session/manager.js';
 import { createDirectoryService } from '../src/directory/service.js';
@@ -49,7 +49,7 @@ async function buildFixture(): Promise<Fixture> {
   await mkdir(join(homeDirectory, 'notes'), { recursive: true });
   await writeFile(join(homeDirectory, 'README.md'), 'not a directory');
 
-  const storage = createSqliteStorage(dataDir);
+  const storage = createFileStorage(dataDir);
   await storage.init();
 
   const store = createDirectoryStore(dataDir);
@@ -289,7 +289,7 @@ test('a throwing DirectoryStore does not break session creation', async (t) => {
   });
   const homeDirectory = await mkdtemp(join(tmpdir(), 'tired-agent-home-'));
 
-  const storage = createSqliteStorage(dataDir);
+  const storage = createFileStorage(dataDir);
   await storage.init();
 
   // Build a DirectoryStore whose recordRecent throws, but every other

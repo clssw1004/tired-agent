@@ -1,24 +1,33 @@
 /**
  * Storage abstraction — pluggable persistence layer for session metadata.
  *
- * Three adapters:
- *   - SqliteStorage   (default — better-sqlite3, CJS loaded via createRequire)
- *   - MysqlStorage    (via mysql2)
- *   - PostgresStorage (via pg)
+ * The default adapter is `createFileStorage` (kind `file`), which keeps
+ * every session's metadata in a small JSON file under `sessions/`:
+ *
+ *   - `<id>.json` — session metadata (no external dependencies)
+ *   - `<id>.log`  — append-only PTY output (unchanged)
+ *
+ * MySQL / Postgres adapters remain reserved placeholders (kinds `mysql`
+ * / `postgres`), selected via the `STORAGE_KIND` env var.
  */
 
-import { appendFileSync, statSync, readFileSync, existsSync, unlinkSync, openSync, closeSync, readSync } from 'node:fs';
+import {
+  appendFileSync,
+  statSync,
+  readFileSync,
+  existsSync,
+  unlinkSync,
+  openSync,
+  closeSync,
+  readSync,
+  writeFileSync,
+  readdirSync,
+  renameSync,
+} from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
 import type { SessionRecord } from './types.js';
-import type { SessionStatus, SessionMode } from '@tired-agent/protocol';
-
-// ─── CJS require bridge for better-sqlite3 ─────────────────────────────────────
-const _require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _sqlite: any = _require('better-sqlite3');
-const Database = _sqlite.default ?? _sqlite;
+import type { SessionStatus } from '@tired-agent/protocol';
 
 // ─── Interface ────────────────────────────────────────────────────────────────
 
@@ -51,140 +60,121 @@ export interface Storage {
   /**
    * Delete all sessions whose `exitedAt` (or, for sessions still flagged
    * `running`, their `createdAt`) is older than `olderThanMs`.
-   * Returns the count removed. Used to keep the DB from growing forever.
+   * Returns the count removed. Used to keep the store from growing forever.
    */
   pruneOlderThan(olderThanMs: number): number;
   close(): Promise<void>;
 }
 
-// ─── SqliteStorage ─────────────────────────────────────────────────────────────
+// ─── FileStorage ──────────────────────────────────────────────────────────────
 
-export function createSqliteStorage(dataDir: string): Storage {
-  const dbPath = join(dataDir, 'tired-agent.db');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let _db: any = null;
+export function createFileStorage(dataDir: string): Storage {
+  const sessionsDir = join(dataDir, 'sessions');
 
-  function db(): import('better-sqlite3').Database {
-    if (_db) return _db;
-    _db = new Database(`${dbPath}.sqlite`);
-    _db.pragma('journal_mode = WAL');
-    _db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id          TEXT PRIMARY KEY,
-        cmd         TEXT NOT NULL,
-        args        TEXT NOT NULL,
-        cwd         TEXT,
-        env         TEXT,
-        status      TEXT NOT NULL DEFAULT 'starting',
-        pid         INTEGER,
-        exitCode    INTEGER,
-        createdAt   INTEGER NOT NULL,
-        exitedAt    INTEGER,
-        byteOffset  INTEGER NOT NULL DEFAULT 0,
-        cols        INTEGER NOT NULL DEFAULT 80,
-        rows        INTEGER NOT NULL DEFAULT 24,
-        label       TEXT,
-        mode        TEXT DEFAULT 'process',
-        claudeSessionId TEXT,
-        extra       TEXT
-      );
-    `);
-    try { _db.exec('ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT \'process\''); } catch { /* already exists */ }
-    try { _db.exec('ALTER TABLE sessions ADD COLUMN claudeSessionId TEXT'); } catch { /* already exists */ }
-    try { _db.exec('ALTER TABLE sessions ADD COLUMN extra TEXT'); } catch { /* already exists */ }
-    return _db;
+  function jsonPath(id: string): string {
+    return join(sessionsDir, `${id}.json`);
+  }
+  function logPath(id: string): string {
+    return join(sessionsDir, `${id}.log`);
+  }
+
+  /**
+   * Atomically write a session record: write a temp file then rename over the
+   * target. A crash between the two steps leaves at most a stray `.tmp` file
+   * (never a corrupt `.json`), and a partially written JSON is never observed.
+   */
+  function writeRecord(id: string, record: SessionRecord): void {
+    const target = jsonPath(id);
+    const tmp = `${target}.tmp`;
+    writeFileSync(tmp, JSON.stringify(record), 'utf-8');
+    renameSync(tmp, target);
   }
 
   async function init() {
-    await mkdir(join(dataDir, 'sessions'), { recursive: true });
-    db(); // trigger schema creation
+    await mkdir(sessionsDir, { recursive: true });
   }
 
   function insert(s: SessionRecord) {
-    db().prepare(`
-      INSERT INTO sessions (id,cmd,args,cwd,env,status,pid,exitCode,createdAt,exitedAt,byteOffset,cols,rows,label,mode,claudeSessionId,extra)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      s.id, s.cmd, JSON.stringify(s.args), s.cwd,
-      s.env ? JSON.stringify(s.env) : null, s.status,
-      s.pid, s.exitCode, s.createdAt, s.exitedAt,
-      s.byteOffset, s.cols, s.rows, s.label, s.mode, s.claudeSessionId,
-      s.extra ? JSON.stringify(s.extra) : null,
-    );
+    writeRecord(s.id, s);
   }
 
   function update(partial: Partial<SessionRecord> & { id: string }) {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    for (const [k, v] of Object.entries(partial)) {
-      if (k === 'id') continue;
-      fields.push(`${k}=?`);
-      values.push(k === 'args' || k === 'env' || k === 'extra' ? JSON.stringify(v) : v);
-    }
-    if (!fields.length) return;
-    values.push(partial.id);
-    db().prepare(`UPDATE sessions SET ${fields.join(',')} WHERE id=?`).run(...values);
+    const path = jsonPath(partial.id);
+    if (!existsSync(path)) return;
+    const current = JSON.parse(readFileSync(path, 'utf-8')) as SessionRecord;
+    writeRecord(partial.id, { ...current, ...partial });
   }
 
   function list(status?: SessionStatus): SessionRecord[] {
-    const d = db();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: any[] = status
-      ? d.prepare('SELECT * FROM sessions WHERE status=? ORDER BY createdAt DESC').all(status)
-      : d.prepare('SELECT * FROM sessions ORDER BY createdAt DESC').all();
-    return rows.map((r) => deserialize(r));
+    if (!existsSync(sessionsDir)) return [];
+    const records: SessionRecord[] = [];
+    for (const name of readdirSync(sessionsDir)) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        records.push(
+          JSON.parse(readFileSync(join(sessionsDir, name), 'utf-8')) as SessionRecord,
+        );
+      } catch {
+        // Skip corrupt / unreadable metadata files rather than crashing the list.
+      }
+    }
+    records.sort((a, b) => b.createdAt - a.createdAt);
+    return status ? records.filter((r) => r.status === status) : records;
   }
 
   function get(id: string): SessionRecord | undefined {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r: any = db().prepare('SELECT * FROM sessions WHERE id=?').get(id);
-    return r ? deserialize(r) : undefined;
+    const path = jsonPath(id);
+    if (!existsSync(path)) return undefined;
+    try {
+      return JSON.parse(readFileSync(path, 'utf-8')) as SessionRecord;
+    } catch {
+      return undefined;
+    }
   }
 
   function deleteSession(id: string): boolean {
-    const d = db();
-    const r = d.prepare('DELETE FROM sessions WHERE id=?').run(id);
-    if (r.changes === 0) return false;
-    const logPath = join(dataDir, 'sessions', `${id}.log`);
-    if (existsSync(logPath)) {
-      try { unlinkSync(logPath); } catch { /* ignore */ }
+    let removed = false;
+    for (const p of [jsonPath(id), `${jsonPath(id)}.tmp`, logPath(id)]) {
+      if (existsSync(p)) {
+        try {
+          unlinkSync(p);
+          removed = true;
+        } catch {
+          /* ignore */
+        }
+      }
     }
-    return true;
+    return removed;
   }
 
   function pruneOlderThan(olderThanMs: number): number {
-    const d = db();
     const cutoff = Date.now() - olderThanMs;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: any[] = d
-      .prepare(`SELECT id, status, createdAt, exitedAt FROM sessions`)
-      .all();
     let count = 0;
-    for (const r of rows) {
-      const ref = r.status === 'exited' ? r.exitedAt : r.createdAt;
+    for (const rec of list()) {
+      const ref = rec.status === 'exited' ? rec.exitedAt : rec.createdAt;
       if (ref && ref < cutoff) {
-        if (deleteSession(r.id)) count++;
+        if (deleteSession(rec.id)) count++;
       }
     }
     return count;
   }
 
   function appendOutput(id: string, data: Uint8Array): number {
-    const logPath = join(dataDir, 'sessions', `${id}.log`);
-    appendFileSync(logPath, Buffer.from(data));
-    const size = statSync(logPath).size;
+    const path = logPath(id);
+    appendFileSync(path, Buffer.from(data));
+    const size = statSync(path).size;
     update({ id, byteOffset: size });
     return size;
   }
 
   function readOutput(id: string, fromOffset: number, limit?: number) {
-    const logPath = join(dataDir, 'sessions', `${id}.log`);
-    if (!existsSync(logPath)) return { chunks: [], upTo: 0 };
-    const total = statSync(logPath).size;
+    const path = logPath(id);
+    if (!existsSync(path)) return { chunks: [], upTo: 0 };
+    const total = statSync(path).size;
     const remaining = total - fromOffset;
     if (remaining <= 0) return { chunks: [], upTo: total };
     const toRead = limit != null ? Math.min(remaining, limit) : remaining;
-    const fullBuf = readFileSync(logPath);
+    const fullBuf = readFileSync(path);
     const slice = fullBuf.subarray(fromOffset, fromOffset + toRead);
     return { chunks: [{ offset: fromOffset, data: new Uint8Array(slice) }], upTo: total };
   }
@@ -194,13 +184,13 @@ export function createSqliteStorage(dataDir: string): Storage {
     // discard 49.9MB of it. openSync + readSync is the cheapest way to do
     // this with built-ins; fs.createReadStream({start}) would also work
     // but allocates a stream + promises for a single contiguous slice.
-    const logPath = join(dataDir, 'sessions', `${id}.log`);
-    if (!existsSync(logPath)) return { chunks: [], upTo: 0, truncated: false };
-    const total = statSync(logPath).size;
+    const path = logPath(id);
+    if (!existsSync(path)) return { chunks: [], upTo: 0, truncated: false };
+    const total = statSync(path).size;
     if (total <= 0 || n <= 0) return { chunks: [], upTo: total, truncated: false };
     const want = Math.min(n, total);
     const start = total - want;
-    const fd = openSync(logPath, 'r');
+    const fd = openSync(path, 'r');
     try {
       const buf = Buffer.allocUnsafe(want);
       readSync(fd, buf, 0, want, start);
@@ -214,27 +204,8 @@ export function createSqliteStorage(dataDir: string): Storage {
     }
   }
 
-  async function close() { _db?.close(); _db = null; }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function deserialize(r: any): SessionRecord {
-    return {
-      id: r['id'], cmd: r['cmd'],
-      args: JSON.parse(r['args']),
-      cwd: r['cwd'] ?? null,
-      env: r['env'] ? JSON.parse(r['env']) : null,
-      status: r['status'] as SessionStatus,
-      pid: r['pid'] ?? null,
-      exitCode: r['exitCode'] ?? null,
-      createdAt: r['createdAt'],
-      exitedAt: r['exitedAt'] ?? null,
-      byteOffset: r['byteOffset'],
-      cols: r['cols'], rows: r['rows'],
-      label: r['label'] ?? null,
-      mode: (r['mode'] as SessionMode | null) ?? null,
-      claudeSessionId: r['claudeSessionId'] ?? null,
-      extra: r['extra'] ? JSON.parse(r['extra']) : null,
-    };
+  async function close() {
+    // Nothing to close — file storage has no long-lived handles.
   }
 
   return { init, insert, update, delete: deleteSession, list, get, appendOutput, readOutput, readOutputTail, pruneOlderThan, close };
@@ -246,19 +217,6 @@ export interface MysqlConfig { host: string; port?: number; user: string; passwo
 export function createMysqlStorage(_: MysqlConfig): Storage {
   throw new Error('MysqlStorage: implementation pending');
 }
-export const _mysqlStub: Storage = {
-  async init() { throw new Error('not implemented'); },
-  insert() { throw new Error('not implemented'); },
-  update() { throw new Error('not implemented'); },
-  delete() { throw new Error('not implemented'); },
-  list() { return []; },
-  get() { return undefined; },
-  appendOutput() { return 0; },
-  readOutput() { return { chunks: [], upTo: 0 }; },
-  readOutputTail() { throw new Error('not implemented'); },
-  pruneOlderThan() { return 0; },
-  async close() { /* noop */ },
-};
 
 // ─── PostgreSQL ───────────────────────────────────────────────────────────────
 
@@ -266,23 +224,10 @@ export interface PostgresConfig { connectionString: string; }
 export function createPostgresStorage(_: PostgresConfig): Storage {
   throw new Error('PostgresStorage: implementation pending');
 }
-export const _postgresStub: Storage = {
-  async init() { throw new Error('not implemented'); },
-  insert() { throw new Error('not implemented'); },
-  update() { throw new Error('not implemented'); },
-  delete() { throw new Error('not implemented'); },
-  list() { return []; },
-  get() { return undefined; },
-  appendOutput() { return 0; },
-  readOutput() { return { chunks: [], upTo: 0 }; },
-  readOutputTail() { throw new Error('not implemented'); },
-  pruneOlderThan() { return 0; },
-  async close() { /* noop */ },
-};
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
-export type StorageKind = 'sqlite' | 'mysql' | 'postgres';
+export type StorageKind = 'file' | 'mysql' | 'postgres';
 export interface StorageConfig {
   kind: StorageKind;
   dataDir: string;
@@ -292,12 +237,14 @@ export interface StorageConfig {
 
 export function createStorage(cfg: StorageConfig): Storage {
   switch (cfg.kind) {
-    case 'sqlite': return createSqliteStorage(cfg.dataDir);
+    case 'file': return createFileStorage(cfg.dataDir);
     case 'mysql':
       if (!cfg.mysql) throw new Error('mysql config required');
       return createMysqlStorage(cfg.mysql);
     case 'postgres':
       if (!cfg.postgres) throw new Error('postgres config required');
       return createPostgresStorage(cfg.postgres);
+    default:
+      throw new Error(`Unknown storage kind: ${String(cfg.kind)}`);
   }
 }

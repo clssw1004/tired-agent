@@ -138,8 +138,8 @@ The Agent is a pure PTY executor — no web UI, no proxy. It exposes a REST + SS
     agent.log           # Current log file
     agent.1.log         # Rotated logs (up to 5, 1 MB each)
     ...
-  agent.sqlite          # Session metadata (SQLite)
-  sessions/             # PTY output logs (append-only)
+  agent.sqlite          # Legacy SQLite session metadata (no longer used)
+  sessions/             # Per-session data: <id>.json (metadata) + <id>.log (PTY output)
 ```
 
 ## Logging
