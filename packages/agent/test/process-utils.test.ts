@@ -23,10 +23,12 @@ import {
   terminateProcess,
   isPortListening,
   checkAgentStartGuard,
+  isDirectEntry,
   parseNetstatPort,
   parseLsofPort,
   parseSsPort,
 } from '../src/util/process-utils.js';
+import { pathToFileURL } from 'node:url';
 
 function makeTmpDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'tired-agent-utils-'));
@@ -275,6 +277,54 @@ test('start guard: no liveness probe falls back to the real one', async () => {
     readPid: () => null,
   });
   assert.equal(result.ok, true);
+});
+
+// ─── isDirectEntry ───────────────────────────────────────────────
+
+test('isDirectEntry is true when index.js itself is the entry point', async () => {
+  const dir = await makeTmpDir();
+  const entry = join(dir, 'index.js');
+  await writeFile(entry, 'export {}');
+  const url = pathToFileURL(entry).href;
+  assert.equal(isDirectEntry(entry, url), true);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('isDirectEntry is false when cli.js is the entry point', async () => {
+  const dir = await makeTmpDir();
+  const indexPath = join(dir, 'index.js');
+  const cliPath = join(dir, 'cli.js');
+  await writeFile(indexPath, 'export {}');
+  await writeFile(cliPath, 'export {}');
+  const url = pathToFileURL(indexPath).href;
+  assert.equal(isDirectEntry(cliPath, url), false);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('isDirectEntry resolves symlinks (npm bin shim case)', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const dir = await makeTmpDir();
+  const real = join(dir, 'cli.js');
+  const link = join(dir, 'tired-agent');
+  await writeFile(real, 'export {}');
+  const { symlinkSync } = await import('node:fs');
+  symlinkSync(real, link);
+  const indexPath = join(dir, 'index.js');
+  await writeFile(indexPath, 'export {}');
+  const url = pathToFileURL(indexPath).href;
+  // argv[1] is the symlink (like ~/.npm-global/bin/tired-agent); it must
+  // NOT be treated as a direct entry for index.js.
+  assert.equal(isDirectEntry(link, url), false);
+  // A symlink pointing at index.js itself IS a direct entry.
+  const indexLink = join(dir, 'bin-index');
+  symlinkSync(indexPath, indexLink);
+  assert.equal(isDirectEntry(indexLink, url), true);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('isDirectEntry is false when argv[1] is missing', () => {
+  assert.equal(isDirectEntry(undefined, 'file:///x/index.js'), false);
 });
 
 // ─── Port occupant parsing ───────────────────────────────────────

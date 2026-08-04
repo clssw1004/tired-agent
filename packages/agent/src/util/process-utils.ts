@@ -7,13 +7,36 @@
  * ports, real PIDs, or a running agent.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 
 const execFileAsync = promisify(execFile);
+
+// ─── Entry-point detection ───────────────────────────────────────
+
+/**
+ * Whether a module is the directly-invoked entry point.
+ *
+ * `moduleUrl` should be `import.meta.url` of the module making the check;
+ * `argv1` should be `process.argv[1]`. Paths are compared after resolving
+ * symlinks so that npm bin symlinks (which do NOT contain the script name,
+ * e.g. `.../bin/tired-agent`) correctly resolve to `cli.js` — the old
+ * `process.argv[1]?.includes('cli')` heuristic wrongly treated those as a
+ * direct entry, running `main()` twice and fighting over the port.
+ */
+export function isDirectEntry(argv1: string | undefined, moduleUrl: string): boolean {
+  if (!argv1) return false;
+  const selfPath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync(argv1) === selfPath;
+  } catch {
+    return resolve(argv1) === selfPath;
+  }
+}
 
 // ─── PID file ────────────────────────────────────────────────────
 
