@@ -26,5 +26,8 @@ coverage/
 *.tmp
 data/
 
+# Test data dirs created by agent smoke tests (contain *.pid and .env)
+.test-svc*/
+
 # Claude Code worktrees / session state
 .claude/
