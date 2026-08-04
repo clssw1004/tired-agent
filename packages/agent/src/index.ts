@@ -32,7 +32,7 @@ import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 import { createDirectoryStore } from './directory/store.js';
 import { createDirectoryService } from './directory/service.js';
-import { findPortOccupant } from './util/process-utils.js';
+import { findPortOccupant, isDirectEntry } from './util/process-utils.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
@@ -184,9 +184,12 @@ export async function main(cfg: ServerConfig) {
   }
 }
 
-// Direct invocation: parse argv and start.
-// Guard: only run when invoked directly (not when imported by cli.ts).
-const _isMain = !process.argv[1]?.includes('cli');
+// Direct invocation (node dist/index.js): parse argv and start.
+// cli.ts is the canonical entry — importing it must NOT re-run main().
+// isDirectEntry() compares realpaths, so npm bin symlinks (whose argv[1]
+// does not contain 'cli') resolve to cli.js and keep _isMain false. This
+// prevents two main() instances in one process fighting over the port.
+const _isMain = isDirectEntry(process.argv[1], import.meta.url);
 if (_isMain) {
   const _cfg = loadConfig(process.argv);
   main(_cfg).catch((err) => {
