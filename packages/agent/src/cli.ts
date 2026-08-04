@@ -17,9 +17,16 @@ import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, openSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
+import {
+  checkAgentStartGuard,
+  findPortOccupant,
+  isProcessAlive,
+  pidFilePath,
+  terminateProcess,
+} from './util/process-utils.js';
 
 // Load .env from package root (bundled defaults, lowest priority).
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -75,20 +82,38 @@ async function run() {
           process.exit(1);
         }
         const { spawn } = await import('node:child_process');
+        // Ensure the data directory exists so we can capture the daemon's
+        // stderr even on a first run.
+        mkdirSync(opts.dataDir, { recursive: true });
+        // Capture the daemon's stderr so startup failures (port in use,
+        // invalid config, …) are visible in this terminal instead of
+        // being swallowed by stdio:'ignore'. On an early exit we print
+        // the tail of that file.
+        const errLogPath = join(opts.dataDir, 'daemon.err.log');
+        let errFd: number | null = null;
+        try {
+          errFd = openSync(errLogPath, 'a');
+        } catch {
+          errFd = null;
+        }
         const child = spawn(process.execPath, [script, ...args], {
           detached: true,
-          stdio: 'ignore',
+          stdio: ['ignore', 'ignore', errFd ?? 'ignore'],
           windowsHide: true,
         });
         child.unref();
         // Give the child a moment to bind (exit immediately if it dies early).
         const timer = setTimeout(() => {
-          console.log(`Agent started in background (PID ${child.pid ?? 'unknown'}, PID written to ${join(opts.dataDir, 'agent.pid')}).`);
-          process.exit(0);
+          if (child.exitCode === null && !child.killed) {
+            console.log(`Agent started in background (PID ${child.pid ?? 'unknown'}, PID file ${join(opts.dataDir, 'agent.pid')}).`);
+            process.exit(0);
+          }
         }, 500);
         child.on('exit', (code, sig) => {
           clearTimeout(timer);
           console.error(`Daemon exited immediately (code=${code}, signal=${sig}).`);
+          const tail = readFileTail(errLogPath);
+          if (tail) console.error(tail);
           process.exit(1);
         });
         child.on('error', (err: Error) => {
@@ -103,8 +128,35 @@ async function run() {
 
       const registerString = opts.register || null;
       const host = opts.host || (registerString ? '0.0.0.0' : '127.0.0.1');
+      const port = Number(opts.port);
+
+      // ── Pre-flight guard: never blindly overwrite a live agent's PID
+      // file. If the PID file points at a running agent that is bound to
+      // our port, refuse to start a second copy.
+      const guard = await checkAgentStartGuard(opts.dataDir, host, port);
+      if (!guard.ok) {
+        console.error(`Agent already running (PID ${guard.pid}) on ${host}:${port}.`);
+        const occupant = await findPortOccupant(port);
+        if (occupant) {
+          console.error(`Port ${port} is held by: ${occupant}`);
+        } else {
+          console.error(`Check the listener with: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
+        }
+        console.error('Use `tired-agent restart` to restart it, or `tired-agent stop` first.');
+        process.exit(1);
+      }
+      if (guard.stalePid !== null) {
+        const why = guard.staleReason === 'DEAD_PROCESS' ? 'dead' : 'not listening';
+        console.warn(`Removing stale PID file (process ${guard.stalePid} is ${why}).`);
+        try {
+          unlinkSync(pidFilePath(opts.dataDir));
+        } catch {
+          /* ok */
+        }
+      }
+
       const cfg: ServerConfig = {
-        port: Number(opts.port),
+        port,
         host,
         token: opts.token ?? process.env['CLSSW_TOKEN'] ?? '',
         dataDir: opts.dataDir,
@@ -117,7 +169,7 @@ async function run() {
       };
       // Ensure the data directory exists before writing PID file or starting.
       mkdirSync(opts.dataDir, { recursive: true });
-      writeFileSync(join(opts.dataDir, 'agent.pid'), String(process.pid), 'utf-8');
+      writeFileSync(pidFilePath(opts.dataDir), String(process.pid), 'utf-8');
       await main(cfg);
     });
 
@@ -166,22 +218,33 @@ async function run() {
         pid = Number(readFileSync(pidFile, 'utf-8').trim());
       } catch {
         console.error('Agent does not appear to be running (no PID file)');
-        console.log('If the agent is running, kill it manually and remove the .env HOST=127.0.0.1 restriction.');
+        console.log('If the agent is running, kill it manually and remove the stale PID file first.');
+        process.exit(1);
+      }
+
+      if (!isProcessAlive(pid)) {
+        console.warn(`Agent PID ${pid} is not running; removing stale PID file.`);
+        try {
+          unlinkSync(pidFile);
+        } catch {
+          /* ok */
+        }
+        return;
+      }
+
+      // SIGTERM → wait for a graceful exit → SIGKILL. On Windows Node maps
+      // both signals to forced termination, so this stays consistent there.
+      const result = await terminateProcess(pid, { timeoutMs: 5000 });
+      if (!result.exited) {
+        console.error(`Agent (PID ${pid}) did not exit after SIGTERM + SIGKILL.`);
         process.exit(1);
       }
       try {
-        // Windows: taskkill. Unix: SIGTERM.
-        const cmd = process.platform === 'win32'
-          ? `taskkill /F /PID ${pid}`
-          : `kill ${pid}`;
-        const { execSync } = await import('node:child_process');
-        execSync(cmd, { stdio: 'ignore' });
         unlinkSync(pidFile);
-        console.log(`Agent (PID ${pid}) stopped.`);
       } catch {
-        console.error(`Failed to stop agent (PID ${pid}). Try: taskkill /F /PID ${pid}`);
-        process.exit(1);
+        /* ok */
       }
+      console.log(`Agent (PID ${pid}) stopped.`);
     });
 
   // ── restart ───────────────────────────────────────────────────
@@ -198,11 +261,19 @@ async function run() {
 
       if (pid) {
         console.log(`Stopping agent (PID ${pid})…`);
-        const cmd = process.platform === 'win32' ? `taskkill /F /PID ${pid}` : `kill ${pid}`;
-        const { execSync } = await import('node:child_process');
-        try { execSync(cmd, { stdio: 'ignore' }); } catch { /* ok */ }
+        if (!isProcessAlive(pid)) {
+          console.warn(`Agent PID ${pid} is not running; skipping stop.`);
+        } else {
+          const result = await terminateProcess(pid, { timeoutMs: 5000 });
+          if (!result.exited) {
+            console.error(`Agent (PID ${pid}) did not stop after SIGTERM + SIGKILL.`);
+            process.exit(1);
+          }
+        }
         try { unlinkSync(pidFile); } catch { /* ok */ }
-        await new Promise((r) => setTimeout(r, 1500));
+        // Give the OS a beat to fully release the port before the
+        // replacement daemon tries to bind it.
+        await new Promise((r) => setTimeout(r, 300));
       }
 
       // Re-launch with a detached child (spawn + unref), so the new process
@@ -216,14 +287,40 @@ async function run() {
         process.exit(1);
       }
       const { spawn } = await import('node:child_process');
+      mkdirSync(opts.dataDir, { recursive: true });
+      // Capture the child's stderr so a failed restart (e.g. port still
+      // in use) surfaces its reason instead of a bare exit code.
+      const errLogPath = join(opts.dataDir, 'daemon.err.log');
+      let errFd: number | null = null;
+      try {
+        errFd = openSync(errLogPath, 'a');
+      } catch {
+        errFd = null;
+      }
       const child = spawn(process.execPath, [script, ...childArgs, 'start'], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', errFd ?? 'ignore'],
         windowsHide: true,
       });
       child.unref();
-      console.log('Agent restarted.');
-      process.exit(0);
+      const timer = setTimeout(() => {
+        if (child.exitCode === null && !child.killed) {
+          console.log('Agent restarted.');
+          process.exit(0);
+        }
+      }, 500);
+      child.on('exit', (code, sig) => {
+        clearTimeout(timer);
+        console.error(`Agent failed to restart (code=${code}, signal=${sig}).`);
+        const tail = readFileTail(errLogPath);
+        if (tail) console.error(tail);
+        process.exit(1);
+      });
+      child.on('error', (err: Error) => {
+        clearTimeout(timer);
+        console.error('Failed to restart daemon:', err.message);
+        process.exit(1);
+      });
     });
 
   // ── status ────────────────────────────────────────────────────
@@ -270,6 +367,21 @@ async function run() {
     });
 
   await program.parseAsync(process.argv);
+}
+
+/**
+ * Read the last ~2000 chars of a file (best-effort). Used by the daemon
+ * watchdog to surface the child's stderr tail on an early exit.
+ */
+function readFileTail(file: string): string | null {
+  try {
+    if (!existsSync(file)) return null;
+    const content = readFileSync(file, 'utf-8');
+    const tail = content.slice(-2000).trim();
+    return tail ? `--- ${file} tail ---\n${tail}` : null;
+  } catch {
+    return null;
+  }
 }
 
 run().catch((err) => {

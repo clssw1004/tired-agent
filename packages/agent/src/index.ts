@@ -32,6 +32,7 @@ import { getOrRegisterCredentials } from './register.js';
 import type { StorageKind } from './session/storage.js';
 import { createDirectoryStore } from './directory/store.js';
 import { createDirectoryService } from './directory/service.js';
+import { findPortOccupant } from './util/process-utils.js';
 
 /** Start the agent with a fully resolved config. */
 export async function main(cfg: ServerConfig) {
@@ -153,9 +154,33 @@ export async function main(cfg: ServerConfig) {
     );
 
   } catch (err) {
-    log.fatal({ err }, 'failed to bind port');
-    await storage.close();
-    process.exit(1);
+    // Dev-mode hot-reload guard: if the port is still held by a dying
+    // process, wait 1s and retry once before giving up.
+    if ((err as { code?: string }).code === 'EADDRINUSE') {
+      log.warn({ port: cfg.port }, 'port in use, retrying in 1s…');
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        await app.listen({ port: cfg.port, host: cfg.host });
+      } catch (retryErr) {
+        const occupant = await findPortOccupant(cfg.port);
+        log.fatal(
+          { err: retryErr, port: cfg.port, occupant },
+          'failed to bind port after retry',
+        );
+        console.error(
+          `[tired-agent] Port ${cfg.port} is in use.` +
+            (occupant ? ` Held by: ${occupant}.` : '') +
+            ` Check with: lsof -nP -iTCP:${cfg.port} -sTCP:LISTEN`,
+        );
+        await storage.close();
+        process.exit(1);
+      }
+      log.info({ host: cfg.host, port: cfg.port }, 'tired-agent agent listening');
+    } else {
+      log.fatal({ err, port: cfg.port }, 'failed to bind port');
+      await storage.close();
+      process.exit(1);
+    }
   }
 }
 
