@@ -85,6 +85,10 @@ async function main(argv: string[]) {
         await app.listen({ port: cfg.port, host: cfg.host });
       } catch (retryErr) {
         log.fatal({ err: retryErr }, 'failed to bind port after retry');
+        console.error(
+          `[tired-agent] Port ${cfg.port} is still in use after retry. ` +
+            `Check the listener with: lsof -nP -iTCP:${cfg.port} -sTCP:LISTEN`,
+        );
         await storage.close();
         process.exit(1);
       }

@@ -1,5 +1,5 @@
 /**
- * Fastify inject tests for the agent's /v1/directories routes.
+ * Fastify inject tests for the agent's /api/v1/directories routes.
  *
  * Each test gets a fresh tmpdir for both the agent's data dir and the
  * browsing home directory so the cases are fully isolated.
@@ -89,13 +89,13 @@ async function buildFixture(): Promise<Fixture> {
   };
 }
 
-test('GET /v1/directories defaults to home and returns only directories', async (t) => {
+test('GET /api/v1/directories defaults to home and returns only directories', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
 
   const response = await fx.app.inject({
     method: 'GET',
-    url: '/v1/directories',
+    url: '/api/v1/directories',
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(response.statusCode, 200);
@@ -121,13 +121,13 @@ test('GET /v1/directories defaults to home and returns only directories', async 
   }
 });
 
-test('GET /v1/directories/shortcuts returns favorites + recent from the store', async (t) => {
+test('GET /api/v1/directories/shortcuts returns favorites + recent from the store', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
 
   const response = await fx.app.inject({
     method: 'GET',
-    url: '/v1/directories/shortcuts',
+    url: '/api/v1/directories/shortcuts',
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(response.statusCode, 200);
@@ -141,7 +141,7 @@ test('favorite routes round trip', async (t) => {
 
   const created = await fx.app.inject({
     method: 'POST',
-    url: '/v1/directories/favorites',
+    url: '/api/v1/directories/favorites',
     headers: {
       authorization: 'Bearer test-token',
       'content-type': 'application/json',
@@ -155,31 +155,31 @@ test('favorite routes round trip', async (t) => {
 
   const removed = await fx.app.inject({
     method: 'DELETE',
-    url: `/v1/directories/favorites/${favorite.id}`,
+    url: `/api/v1/directories/favorites/${favorite.id}`,
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(removed.statusCode, 204);
 });
 
-test('DELETE /v1/directories/favorites/:id returns 404 for unknown id', async (t) => {
+test('DELETE /api/v1/directories/favorites/:id returns 404 for unknown id', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
 
   const response = await fx.app.inject({
     method: 'DELETE',
-    url: '/v1/directories/favorites/does-not-exist',
+    url: '/api/v1/directories/favorites/does-not-exist',
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(response.statusCode, 404);
 });
 
-test('POST /v1/directories/favorites rejects paths that are not directories', async (t) => {
+test('POST /api/v1/directories/favorites rejects paths that are not directories', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
 
   const response = await fx.app.inject({
     method: 'POST',
-    url: '/v1/directories/favorites',
+    url: '/api/v1/directories/favorites',
     headers: {
       authorization: 'Bearer test-token',
       'content-type': 'application/json',
@@ -191,13 +191,13 @@ test('POST /v1/directories/favorites rejects paths that are not directories', as
   assert.equal(body.error.code, 'NOT_A_DIRECTORY');
 });
 
-test('POST /v1/directories/favorites rejects non-existent paths with 404', async (t) => {
+test('POST /api/v1/directories/favorites rejects non-existent paths with 404', async (t) => {
   const fx = await buildFixture();
   t.after(() => fx.close());
 
   const response = await fx.app.inject({
     method: 'POST',
-    url: '/v1/directories/favorites',
+    url: '/api/v1/directories/favorites',
     headers: {
       authorization: 'Bearer test-token',
       'content-type': 'application/json',
@@ -218,7 +218,7 @@ test('routes require an auth token', async (t) => {
 
   const response = await fx.app.inject({
     method: 'GET',
-    url: '/v1/directories',
+    url: '/api/v1/directories',
   });
   assert.equal(response.statusCode, 401);
 });
@@ -230,7 +230,7 @@ test('route rejects a file path as a directory', async (t) => {
   const filePath = join(fx.homeDirectory, 'README.md');
   const response = await fx.app.inject({
     method: 'GET',
-    url: `/v1/directories?path=${encodeURIComponent(filePath)}`,
+    url: `/api/v1/directories?path=${encodeURIComponent(filePath)}`,
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(response.statusCode, 400);
@@ -243,7 +243,7 @@ test('error responses never leak the underlying stack trace', async (t) => {
 
   const response = await fx.app.inject({
     method: 'GET',
-    url: '/v1/directories?path=' + encodeURIComponent(join(fx.homeDirectory, 'nope')),
+    url: '/api/v1/directories?path=' + encodeURIComponent(join(fx.homeDirectory, 'nope')),
     headers: { authorization: 'Bearer test-token' },
   });
   assert.equal(response.statusCode, 404);
