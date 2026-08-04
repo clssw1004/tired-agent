@@ -31,6 +31,7 @@ import { createSessionRecord } from './types.js';
 import type { Storage } from './storage.js';
 import type { DirectoryStore } from '../directory/types.js';
 import { log } from '../util/log.js';
+import { buildSpawnEnv, getLoginShellEnv } from '../util/process-utils.js';
 
 export interface LiveSession {
   /** Snapshot from storage — always reflects the latest state. */
@@ -584,13 +585,11 @@ function normalizeCmd(cmd: string): string {
 }
 
 function buildEnv(extra: Record<string, string> | null): Record<string, string> {
-  const base: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v != null) base[k] = v;
-  }
-  delete base['NODE_OPTIONS'];
-  if (extra) Object.assign(base, extra);
-  return base;
+  // Prefer the user's login-shell environment (refreshed periodically) so
+  // commands installed after the daemon started are still found. On
+  // Windows / shell failure getLoginShellEnv() returns {} and we keep the
+  // daemon's own process.env snapshot.
+  return buildSpawnEnv(process.env, getLoginShellEnv(), extra);
 }
 
 /**
