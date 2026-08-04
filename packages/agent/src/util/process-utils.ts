@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
@@ -302,4 +302,71 @@ export function parseSsPort(stdout: string, port: number): string | null {
     if (m) return `${m[1]} (PID ${m[2]})`;
   }
   return null;
+}
+
+// ─── User shell environment ──────────────────────────────────────
+
+const SHELL_ENV_TTL_MS = 10_000;
+
+let _shellEnvCache: { env: Record<string, string>; at: number } | null = null;
+
+/**
+ * Compute the user's login-shell environment (`bash -lc 'env'` with
+ * `~/.bashrc` sourced) so session processes see a FRESH view of PATH
+ * and other variables — not the daemon's startup snapshot. This way a
+ * command installed (or a PATH entry added) after the agent started is
+ * still found when spawning a session.
+ *
+ * Results are cached for a short TTL to avoid the ~100ms bash cost on
+ * every spawn. Returns an empty object on Windows (no shell to query)
+ * or when the shell invocation fails — callers fall back to
+ * `process.env`.
+ */
+export function getLoginShellEnv(): Record<string, string> {
+  if (process.platform === 'win32') return {};
+  const now = Date.now();
+  if (_shellEnvCache && now - _shellEnvCache.at < SHELL_ENV_TTL_MS) {
+    return _shellEnvCache.env;
+  }
+  try {
+    const out = execFileSync(
+      'bash',
+      ['-lc', 'source ~/.bashrc 2>/dev/null; env'],
+      { timeout: 3000, encoding: 'utf-8', maxBuffer: 1024 * 1024 },
+    );
+    const env: Record<string, string> = {};
+    for (const line of out.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    _shellEnvCache = { env, at: now };
+    return env;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Build the environment for a spawned session process.
+ *
+ * The user's login-shell env wins over the daemon's snapshot (so
+ * PATH/PATH entries updated after start are honoured), then explicit
+ * per-session `extra` vars override everything. `NODE_OPTIONS` is
+ * always stripped (it could inject flags into the child).
+ */
+export function buildSpawnEnv(
+  processEnv: NodeJS.ProcessEnv,
+  shellEnv: Record<string, string>,
+  extra: Record<string, string> | null,
+): Record<string, string> {
+  const base: Record<string, string> = {};
+  for (const [k, v] of Object.entries(processEnv)) {
+    if (v != null && !(k in shellEnv)) base[k] = v;
+  }
+  for (const [k, v] of Object.entries(shellEnv)) {
+    if (v != null) base[k] = v;
+  }
+  delete base['NODE_OPTIONS'];
+  if (extra) Object.assign(base, extra);
+  return base;
 }

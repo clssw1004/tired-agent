@@ -24,6 +24,8 @@ import {
   isPortListening,
   checkAgentStartGuard,
   isDirectEntry,
+  getLoginShellEnv,
+  buildSpawnEnv,
   parseNetstatPort,
   parseLsofPort,
   parseSsPort,
@@ -325,6 +327,50 @@ test('isDirectEntry resolves symlinks (npm bin shim case)', {
 
 test('isDirectEntry is false when argv[1] is missing', () => {
   assert.equal(isDirectEntry(undefined, 'file:///x/index.js'), false);
+});
+
+// ─── buildSpawnEnv ───────────────────────────────────────────────
+
+test('buildSpawnEnv lets the shell environment override the daemon snapshot', () => {
+  const env = buildSpawnEnv(
+    { PATH: '/old/bin', HOME: '/home/x', EXTRA: '1' },
+    { PATH: '/new/bin', SHELL_VAR: 'yes' },
+    null,
+  );
+  assert.equal(env.PATH, '/new/bin', 'shell PATH must win over snapshot');
+  assert.equal(env.SHELL_VAR, 'yes');
+  assert.equal(env.EXTRA, '1', 'vars absent from the shell env are kept');
+  assert.equal(env.HOME, '/home/x');
+});
+
+test('buildSpawnEnv strips NODE_OPTIONS', () => {
+  const env = buildSpawnEnv(
+    { NODE_OPTIONS: '--max-old-space-size=1024', FOO: 'bar' },
+    {},
+    null,
+  );
+  assert.ok(!('NODE_OPTIONS' in env));
+  assert.equal(env.FOO, 'bar');
+});
+
+test('buildSpawnEnv lets per-session extra vars win over everything', () => {
+  const env = buildSpawnEnv(
+    { COLOR: 'snapshot' },
+    { COLOR: 'shell' },
+    { COLOR: 'session' },
+  );
+  assert.equal(env.COLOR, 'session');
+});
+
+test('getLoginShellEnv returns a real env on POSIX, empty on Windows', () => {
+  const env = getLoginShellEnv();
+  if (process.platform === 'win32') {
+    assert.deepEqual(env, {});
+  } else {
+    assert.equal(typeof env.PATH, 'string');
+    assert.ok(env.PATH.length > 0, 'PATH should be resolved from the shell');
+    assert.equal(typeof env.HOME, 'string');
+  }
 });
 
 // ─── Port occupant parsing ───────────────────────────────────────
