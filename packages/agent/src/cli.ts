@@ -5,8 +5,13 @@
  *
  * Provides the `tired-agent` command with subcommands and options:
  *
- *   tired-agent start [options]      启动 agent 守护进程
+ *   tired-agent start [options]      启动 agent 守护进程（已装服务时重定向 systemd/launchctl）
+ *   tired-agent stop | restart       停止 / 重启（同上，服务模式下委托系统服务管理器）
+ *   tired-agent status               状态（服务模式下额外显示 supervisor 状态）
  *   tired-agent register <base64>    注册到 Manager 后退出
+ *   tired-agent install [service]    安装为系统服务（Linux: systemd; macOS: launchd）
+ *   tired-agent uninstall [service]  卸载服务（默认保留数据）
+ *   tired-agent update [version]     升级 npm 包并重启服务
  *   tired-agent --version            版本号
  *   tired-agent --help               帮助
  *
@@ -27,6 +32,14 @@ import {
   pidFilePath,
   terminateProcess,
 } from './util/process-utils.js';
+import {
+  delegateServiceCommand,
+  installService,
+  isServiceInstalled,
+  printServiceStatus,
+  uninstallService,
+  updateService,
+} from './install-service.js';
 
 // Load .env from package root (bundled defaults, lowest priority).
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -70,6 +83,12 @@ async function run() {
     .option('--sse-debug', 'Enable SSE hex dump logging', process.env['CLSSW_DEBUG_SSE'] === '1')
     .option('-D, --daemon', 'Run in background (detach from terminal)')
     .action(async (opts) => {
+      // ── Managed-service mode: delegate to the platform supervisor ──
+      if (isServiceInstalled()) {
+        console.log('tired-agent is installed as a system service — delegating to the service manager.');
+        process.exit(delegateServiceCommand('start'));
+        return;
+      }
       // ── Daemon mode: fork a detached child and exit ───────────
       if (opts.daemon) {
         // Rebuild args without `--daemon` so the child runs in foreground.
@@ -212,6 +231,12 @@ async function run() {
     .description('Stop the running agent daemon')
     .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
     .action(async (opts) => {
+      // Managed-service mode: delegate to the platform supervisor.
+      if (isServiceInstalled()) {
+        console.log('tired-agent is installed as a system service — delegating to the service manager.');
+        process.exit(delegateServiceCommand('stop'));
+        return;
+      }
       const pidFile = join(opts.dataDir, 'agent.pid');
       let pid: number;
       try {
@@ -253,6 +278,12 @@ async function run() {
     .description('Restart the running agent daemon')
     .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
     .action(async (opts) => {
+      // Managed-service mode: delegate to the platform supervisor.
+      if (isServiceInstalled()) {
+        console.log('tired-agent is installed as a system service — delegating to the service manager.');
+        process.exit(delegateServiceCommand('restart'));
+        return;
+      }
       const pidFile = join(opts.dataDir, 'agent.pid');
       let pid: number | null = null;
       try {
@@ -329,6 +360,11 @@ async function run() {
     .description('Show agent status — running, registered, config')
     .option('-d, --data-dir <path>', `Data directory (default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
     .action(async (opts) => {
+      // Managed-service mode: show supervisor status in addition to health.
+      if (isServiceInstalled()) {
+        printServiceStatus();
+        console.log();
+      }
       const { loadCredentials } = await import('./register.js');
       const creds = await loadCredentials(opts.dataDir);
 
@@ -364,6 +400,46 @@ async function run() {
       } catch {
         console.log(`Running:    no`);
       }
+    });
+
+  // ── install / uninstall / update ─────────────────────────────
+  program
+    .command('install')
+    .description('Install tired-agent as a managed system service (Linux: systemd user unit; macOS: launchd agent)')
+    .argument('[what]', "What to install — 'service' (default)", 'service')
+    .option('--register <base64>', 'Base64 Manager registration string embedded in the service command')
+    .option('--dry-run', 'Preview the service config and commands without making changes')
+    .option('-d, --data-dir <path>', `Data directory (env: CLSSW_DATA, default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (what, opts) => {
+      if (what !== 'service') {
+        console.error(`Unknown install target: ${what}`);
+        process.exit(1);
+      }
+      process.exit(installService({ registerBase64: opts.register, dryRun: opts.dryRun, dataDir: opts.dataDir }));
+    });
+
+  program
+    .command('uninstall')
+    .description('Uninstall tired-agent managed service (keeps data unless --purge)')
+    .argument('[what]', "What to uninstall — 'service' (default)", 'service')
+    .option('--dry-run', 'Preview commands without making changes')
+    .option('--purge', 'Also remove the data directory')
+    .option('-d, --data-dir <path>', `Data directory (env: CLSSW_DATA, default ~/.tiredagent)`, process.env['CLSSW_DATA'] ?? DEFAULT_DATA_DIR)
+    .action(async (what, opts) => {
+      if (what !== 'service') {
+        console.error(`Unknown uninstall target: ${what}`);
+        process.exit(1);
+      }
+      process.exit(uninstallService({ dryRun: opts.dryRun, purge: opts.purge, dataDir: opts.dataDir }));
+    });
+
+  program
+    .command('update')
+    .description('Upgrade the installed service to the latest (or pinned) npm package and restart it')
+    .argument('[version]', 'npm package version to install (default: latest)')
+    .option('--dry-run', 'Preview commands without making changes')
+    .action(async (version, opts) => {
+      process.exit(updateService({ version, dryRun: opts.dryRun }));
     });
 
   await program.parseAsync(process.argv);
