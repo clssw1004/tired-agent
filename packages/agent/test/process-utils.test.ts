@@ -10,6 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -191,11 +192,14 @@ test('terminateProcess stops a real child process', async (t) => {
 test('terminateProcess force-kills a child that ignores SIGTERM', {
   skip: process.platform === 'win32',
 }, async (t) => {
-  // SIGTERM handler swallows the signal; only SIGKILL can stop it.
+  // The child prints 'ready' only AFTER installing its SIGTERM handler. We
+  // wait for it before signalling so the SIGTERM is guaranteed to be ignored
+  // — otherwise it can land before the handler is registered and the child
+  // dies by the default disposition (killed=false, flaky under load).
   const child = spawn(
     process.execPath,
-    ['-e', "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
-    { stdio: 'ignore' },
+    ['-e', "process.on('SIGTERM',()=>{});process.stdout.write('ready');setInterval(()=>{},1000)"],
+    { stdio: ['ignore', 'pipe', 'ignore'] },
   );
   t.after(() => {
     try {
@@ -204,7 +208,8 @@ test('terminateProcess force-kills a child that ignores SIGTERM', {
       /* ok */
     }
   });
-  const result = await terminateProcess(child.pid, { timeoutMs: 300 });
+  await once(child.stdout, 'data');
+  const result = await terminateProcess(child.pid, { timeoutMs: 2000 });
   assert.equal(result.exited, true);
   assert.equal(result.killed, true);
 });

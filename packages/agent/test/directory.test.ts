@@ -269,7 +269,7 @@ test('store dedupes favorites differing only by case on Windows', async () => {
   assert.equal(favorites.length, 1);
 });
 
-test('store normalizes forward/back slashes consistently in favorite paths', async () => {
+test('store handles forward/back slash variants per platform', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'tired-agent-directory-'));
   const store = createDirectoryStore(dataDir);
   await store.init();
@@ -282,9 +282,16 @@ test('store normalizes forward/back slashes consistently in favorite paths', asy
 
   const a = await store.addFavorite(canonical, 'A');
   const b = await store.addFavorite(alt, 'B');
-  assert.equal(a.id, b.id, 'different separators for the same path must dedupe');
+  if (process.platform === 'win32') {
+    // On Windows both '/' and '\' are separators, so the variants collapse.
+    assert.equal(a.id, b.id, 'different separators for the same path must dedupe');
+    assert.equal(b.path, canonical, 'second write should adopt the canonical form');
+  } else {
+    // On POSIX '\' is a literal filename character, so the alt variant is a
+    // genuinely different path and must NOT be collapsed.
+    assert.notEqual(a.id, b.id, 'backslash is a literal char on POSIX, not a separator');
+  }
   assert.equal(a.path, canonical);
-  assert.equal(b.path, canonical, 'second write should adopt the canonical form');
 });
 
 test('store recordRecent resolves relative paths and dedupes', async () => {
