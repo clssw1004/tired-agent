@@ -47,7 +47,7 @@ export async function main(cfg: ServerConfig) {
   });
 
   // Ensure the data directory exists before any file operations (logs,
-  // credentials, .env, SQLite DB). This is idempotent — safe on every start.
+  // credentials, .env, session metadata). This is idempotent — safe on every start.
   await mkdir(cfg.dataDir, { recursive: true });
 
   // Initialise the logger from config (file + rotation in daemon mode).
@@ -102,7 +102,7 @@ export async function main(cfg: ServerConfig) {
   await persistEffectiveConfig(cfg);
 
   const storage = createStorage({
-    kind: (process.env['STORAGE_KIND'] as StorageKind) ?? 'sqlite',
+    kind: (process.env['STORAGE_KIND'] as StorageKind) ?? 'file',
     dataDir: cfg.dataDir,
     mysql: process.env['MYSQL_HOST']
       ? {
@@ -119,7 +119,7 @@ export async function main(cfg: ServerConfig) {
   });
 
   await storage.init();
-  log.info({ dataDir: cfg.dataDir, storageKind: process.env['STORAGE_KIND'] ?? 'sqlite' }, 'storage initialized');
+  log.info({ dataDir: cfg.dataDir, storageKind: process.env['STORAGE_KIND'] ?? 'file' }, 'storage initialized');
 
   // Initialise directory shortcuts (favorites + recent) BEFORE the
   // SessionManager so the manager can record recent cwds on every

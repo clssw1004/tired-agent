@@ -40,7 +40,7 @@ CLI 工具跑在你控制的机器上，通过浏览器从任何地方接入。�
 | 服务端平台 | Windows + Linux + macOS 全平台 | node-pty 跨平台抽象 |
 | 技术栈 | TypeScript + Node.js | monorepo，类型共享 |
 | 客户端 | React + Vite Web SPA（由 Manager 静态托管） | 移动端友好，无需原生打包 |
-| 数据库 | Storage 抽象接口，默认 SQLite（better-sqlite3） | 零依赖起步，MySQL/Postgres 预留 |
+| 数据库 | Storage 抽象接口，默认 JSON 文件存储（零依赖） | 免原生编译，MySQL/Postgres 预留 |
 | 网络层 | 用户自管（ZeroTier / frp / VPN），系统不做穿透 | 只需能在 LAN / VPN 上跑通 |
 | 鉴权 | Bearer Token；Manager 侧签发会话 token | 简单、有效 |
 | 会话模型 | Manager 多 agent × 每 agent 多 session | Manager 维护 agent 注册表 |
@@ -166,36 +166,37 @@ tired-agent/
 
 ### 5.1 Agent 端 Storage 抽象
 
-`agent/src/session/storage.ts` 定义 `Storage` 接口，默认 SQLite 实现（`tired-agent.db.sqlite`，WAL）。
-会话元数据存表 `sessions`，PTY 原始输出以 append-only 日志存 `<dataDir>/sessions/<id>.log`。
+`agent/src/session/storage.ts` 定义 `Storage` 接口，默认文件存储实现（`createFileStorage`）。
+每个会话的元数据以 JSON 存 `<dataDir>/sessions/<id>.json`，PTY 原始输出以 append-only 日志存 `<dataDir>/sessions/<id>.log`。
 
-`sessions` 表主要列：
+JSON 元数据字段：
 
-```sql
-CREATE TABLE sessions (
-  id          TEXT PRIMARY KEY,
-  cmd         TEXT NOT NULL,
-  args        TEXT NOT NULL,          -- JSON
-  cwd         TEXT,
-  env         TEXT,                   -- JSON
-  status      TEXT NOT NULL DEFAULT 'starting',
-  pid         INTEGER,
-  exitCode    INTEGER,
-  createdAt   INTEGER NOT NULL,
-  exitedAt    INTEGER,
-  byteOffset  INTEGER NOT NULL DEFAULT 0,  -- 日志累计字节数，客户端续传游标
-  cols        INTEGER NOT NULL DEFAULT 80,
-  rows        INTEGER NOT NULL DEFAULT 24,
-  label       TEXT,
-  mode        TEXT DEFAULT 'process',      -- process | persistent
-  claudeSessionId TEXT                     -- 持久化会话的 --resume 锚点
-);
+```json
+{
+  "id": "…",
+  "cmd": "…",
+  "args": ["…"],               // JSON 数组
+  "cwd": "…",
+  "env": { "…": "…" },          // JSON 对象
+  "status": "starting",
+  "pid": null,
+  "exitCode": null,
+  "createdAt": 0,
+  "exitedAt": null,
+  "byteOffset": 0,              // 日志累计字节数，客户端续传游标
+  "cols": 80,
+  "rows": 24,
+  "label": null,
+  "mode": "process",            // process | persistent
+  "claudeSessionId": null       // 持久化会话的 --resume 锚点
+}
 ```
 
+- 元数据写入采用「临时文件 + rename」原子替换，崩溃不会产生半写 JSON；损坏的 JSON 文件在 `list`/`get` 中被安全跳过。
 - `byteOffset` 是该会话日志文件的累计字节数，客户端以此为续传游标。
 - 用户消息与 Claude 的 NDJSON 输出都写入同一份 `<id>.log`（用户消息以
   `{"type":"tired-agent/user",...}` 行内联），因此完整会话历史可从日志重建。
-- `MySQL` / `PostgreSQL` 适配器接口预留（当前为占位实现）。可通过 `STORAGE_KIND` 等环境变量切换。
+- `MySQL` / `PostgreSQL` 适配器接口预留（当前为占位实现）。可通过 `STORAGE_KIND` 环境变量切换。
 - 日志读取支持 `readOutput(from, limit)` 与 `readOutputTail(n)`（尾部反向读取）。
 
 ### 5.2 Manager 端存储
@@ -384,7 +385,7 @@ UI 层从不直接处理原始 ANSI。
 |------|------|
 | `node-pty` 原生编译 | Windows 需 Python + build tools；Alpine 需 `build-base python3` |
 | SSE 被代理缓冲 | `X-Accel-Buffering: no` + 15s heartbeat |
-| SQLite 写并发 | better-sqlite3 同步 API，单 daemon 单写者，WAL 模式 |
+| 元数据写并发 | JSON 文件原子替换（tmp + rename），单 daemon 单写者 |
 | 日志文件无限增长 | `DELETE /v1/sessions/prune` + 定期清理已退出会话日志 |
 | 注册端点公开 | 依赖网络边界（VPN / 反代 / 防火墙），勿裸露公网 |
 | Agent 重启换 token | 按 `agentKey` 去重并复用 token，保持既有客户端可用 |
