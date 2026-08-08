@@ -182,6 +182,18 @@ export class SessionManager {
     return live.get(id)?.record ?? this.storage.get(id);
   }
 
+  /**
+   * Drop a session from the live map immediately, without touching storage.
+   *
+   * Used by the DELETE route after removing the storage record. pruneStale()
+   * only evicts exited sessions once its 60s grace period has elapsed, so a
+   * recently-exited session would otherwise keep appearing in list() (which
+   * merges storage + live) after being deleted.
+   */
+  forget(id: string): void {
+    live.delete(id);
+  }
+
   /** Returns SessionRecord[] — claudeSessionId is serialized as-is by Fastify. */
   list(): SessionRecord[] {
     const byId = new Map<string, SessionRecord>();
@@ -343,8 +355,18 @@ export class SessionManager {
           const sid = extractClaudeSessionId(outputBuf);
           if (sid) {
             s.claudeSessionId = sid;
-            // Persist so --resume survives an agent restart.
-            try { this.storage.update({ id, claudeSessionId: sid }); } catch { /* non-fatal */ }
+            // Persist so --resume survives an agent restart. Mirror the id
+            // into the extra map too — the mobile client reads resume
+            // metadata from `extra.claudeSessionId`, and the top-level field
+            // alone would be invisible to it.
+            try {
+              const current = this.storage.get(id);
+              this.storage.update({
+                id,
+                claudeSessionId: sid,
+                extra: { ...(current?.extra ?? {}), claudeSessionId: sid },
+              });
+            } catch { /* non-fatal */ }
           }
         }
       } catch (err) {
@@ -468,8 +490,15 @@ export class SessionManager {
     if (resumeIdx >= 0 && resumeIdx + 1 < args.length) {
       const candidate = args[resumeIdx + 1] as string;
       if (/^[0-9a-f-]{36}$/i.test(candidate)) {
-        record = { ...record, claudeSessionId: candidate };
-        this.storage.update({ id, claudeSessionId: candidate });
+        // Mirror into extra too — the mobile client reads resume metadata
+        // from `extra.claudeSessionId` and would otherwise fall through to
+        // the label (a non-session-id) when resuming.
+        record = {
+          ...record,
+          claudeSessionId: candidate,
+          extra: { ...record.extra, claudeSessionId: candidate },
+        };
+        this.storage.update({ id, claudeSessionId: candidate, extra: record.extra });
       }
     }
 
