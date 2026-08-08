@@ -46,7 +46,11 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const args = ['--import', 'tsx', '--test', ...files];
+// --test-force-exit: a node-pty PTY on Windows (conpty) can keep an OS
+// handle alive after its process has exited, which would otherwise leave
+// the test runner hanging on a green suite. Force-exit once all test
+// logic has finished running.
+const args = ['--import', 'tsx', '--test', '--test-force-exit', ...files];
 
 // Echo the exact command so CI logs are inspectable.
 console.log(`> node ${args.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' ')}`);

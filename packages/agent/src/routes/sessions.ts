@@ -125,7 +125,10 @@ export function registerSessionsRoutes(
     try {
       if (session.status === 'exited') {
         storage.delete(id);
-        manager.pruneStale();
+        // Drop from the live map immediately too — pruneStale() has a 60s
+        // grace period before it removes exited sessions, so without this
+        // the deleted session would keep showing up in GET /sessions.
+        manager.forget(id);
         log.info({ sessionId: id }, 'DELETE /sessions/:id → deleted (exited)');
         return reply.code(204).send();
       }
